@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0,
+                 user-scalable=no, viewport-fit=cover" />
+  <title>🍽️ My Restaurant</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #FCE4EC;
+      overflow: hidden;
+      touch-action: none;
+      font-family: 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif;
+    }
+
+    #wrapper {
+      position: absolute;
+      width: 390px;
+      height: 720px;
+      transform-origin: top left;
+    }
+
+    canvas {
+      display: block;
+      width: 390px;
+      height: 720px;
+      image-rendering: pixelated;
+    }
+
+    /* ── Loading screen ── */
+    #loading {
+      position: absolute; inset: 0;
+      background: #FCE4EC;
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      gap: 16px;
+      z-index: 10;
+    }
+
+    .loading-logo {
+      font-size: 64px;
+      animation: bounce 1s infinite ease-in-out;
+    }
+
+    .loading-title {
+      color: #AD1457;
+      font-size: 26px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-shadow: 0 0 20px rgba(255,165,0,0.6);
+    }
+
+    .loading-sub {
+      color: #F48FB1;
+      font-size: 14px;
+    }
+
+    #loading-bar-bg {
+      width: 260px; height: 8px;
+      background: #1a0800;
+      border-radius: 4px;
+      border: 1px solid #5C3A1E;
+    }
+
+    #loading-bar {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #F48FB1, #F06292);
+      border-radius: 4px;
+      transition: width 0.15s ease;
+    }
+
+    #loading-msg {
+      font-size: 12px;
+      color: #5C3A1E;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-12px); }
+    }
+
+    /* ── Tap to start overlay ── */
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="wrapper">
+  <canvas id="gameCanvas" width="390" height="720"></canvas>
+
+  <div id="loading">
+    <div class="loading-logo">🍳</div>
+    <div class="loading-title">My Restaurant</div>
+    <div class="loading-sub">ร้านอาหารของหนู 🌸</div>
+    <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+    <div id="loading-msg">กำลังเตรียมวัตถุดิบ...</div>
+  </div>
+
+
+</div>
+
+<!-- ════ Scripts ════ -->
+<script src="js/settings.js"></script>
+<script src="js/ranking.js"></script>
+<script src="js/player.js"></script>
+<script src="js/customer.js"></script>
+<script src="js/kitchen.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/game.js"></script>
+
+<script>
+(function () {
+  // ── Scale wrapper to fit screen ──
+  function fitScreen() {
+    const wrapper = document.getElementById('wrapper');
+    const scaleX  = window.innerWidth  / 390;
+    const scaleY  = window.innerHeight / 720;
+    const scale   = Math.min(scaleX, scaleY);
+    const offsetX = (window.innerWidth  - 390 * scale) / 2;
+    const offsetY = (window.innerHeight - 720 * scale) / 2;
+    wrapper.style.transform = `scale(${scale})`;
+    wrapper.style.left = `${offsetX}px`;
+    wrapper.style.top  = `${offsetY}px`;
+  }
+  fitScreen();
+  window.addEventListener('resize', fitScreen);
+
+  // ── Simulate loading (no real assets needed for placeholder mode) ──
+  const barEl = document.getElementById('loading-bar');
+  const msgEl = document.getElementById('loading-msg');
+  const msgs  = ['กำลังตั้งเตา...', 'เตรียมวัตถุดิบ...', 'จัดโต๊ะลูกค้า...', 'พร้อมเปิดร้านแล้ว! 🎉'];
+  let progress = 0;
+
+  const interval = setInterval(() => {
+    progress += Math.random() * 18 + 8;
+    if (progress >= 100) { progress = 100; clearInterval(interval); showStart(); }
+    barEl.style.width = `${progress}%`;
+    msgEl.textContent = msgs[Math.min(Math.floor(progress / 25), msgs.length - 1)];
+  }, 120);
+
+  function showStart() {
+    setTimeout(() => {
+      document.getElementById('loading').style.display = 'none';
+      startGame();
+    }, 400);
+  }
+
+  function startGame() {
+    const canvas = document.getElementById('gameCanvas');
+    const game   = new Game(canvas);
+
+    // ── Image assets ──────────────────────────────
+    const imgDefs = [
+      { key: 'player',       src: 'assets/images/player.png'        },
+      { key: 'bgOutside',    src: 'assets/images/bg_outside.png'    },
+      { key: 'bgInside',     src: 'assets/images/bg_inside.png'     },
+      { key: 'menuBurger',   src: 'assets/images/menu_burger.png'   },
+      { key: 'menuChicken',  src: 'assets/images/menu_chicken.png'  },
+      { key: 'menuFries',    src: 'assets/images/menu_fries.png'    },
+      { key: 'menuDonut',    src: 'assets/images/menu_donut.png'    },
+      { key: 'stationPrep',  src: 'assets/images/station_prep.png'  },
+      { key: 'stationCook',  src: 'assets/images/station_cook.png'  },
+      { key: 'stationPlate', src: 'assets/images/station_plate.png' },
+      { key: 'stationServe', src: 'assets/images/station_serve.png' },
+    ];
+
+    // ── Sound assets ──────────────────────────────
+    const sndDefs = [
+      { key: 'bgm',    src: 'assets/sounds/bgm.mp3',    loop: true,  vol: 0.35 },
+      { key: 'coin',   src: 'assets/sounds/coin.wav',   loop: false, vol: 0.60 },
+      { key: 'serve',  src: 'assets/sounds/serve.wav',  loop: false, vol: 0.60 },
+      { key: 'anger',  src: 'assets/sounds/anger.wav',  loop: false, vol: 0.65 },
+      { key: 'cheer',  src: 'assets/sounds/cheer.wav',  loop: false, vol: 0.60 },
+    ];
+
+    const images = {}, sounds = {};
+    let total  = imgDefs.length + sndDefs.length;
+    let loaded = 0;
+    const tryStart = () => {
+      loaded++;
+      if (loaded >= total) {
+        // Generate error beep via Web Audio (no file needed)
+        sounds.error = _makeBeep(880, 0.12, 'square');
+        game.setImages(images);
+        game.setSounds(sounds);
+        game.start();
+      }
+    };
+
+    imgDefs.forEach(def => {
+      const img = new Image();
+      img.onload  = () => { images[def.key] = img;   tryStart(); };
+      img.onerror = () => { images[def.key] = null;  tryStart(); };
+      img.src = def.src;
+    });
+
+    sndDefs.forEach(def => {
+      const aud = new Audio();
+      aud.preload = 'auto';
+      aud.volume  = def.vol || 0.55;
+      aud.loop    = def.loop || false;
+      let _done = false;
+      const done = (val) => { if (_done) return; _done = true; sounds[def.key] = val; tryStart(); };
+      aud.addEventListener('canplaythrough', () => done(aud), { once: true });
+      aud.addEventListener('error',          () => done(null), { once: true });
+      setTimeout(() => done(aud), 4000);
+      aud.src = def.src;
+    });
+  }
+
+  // Generate Web Audio beep — returns object with .play() and .cloneNode()
+  function _makeBeep(freq, duration, type) {
+    let _actx = null;
+    function getCtx() {
+      if (!_actx) _actx = new (window.AudioContext || window.webkitAudioContext)();
+      return _actx;
+    }
+    function playBeep() {
+      try {
+        const ctx = getCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = type || 'square';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration + 0.01);
+        return Promise.resolve();
+      } catch(e) { return Promise.resolve(); }
+    }
+    const obj = {
+      play:      () => playBeep(),
+      cloneNode: () => ({ play: () => playBeep() }),
+      volume: 0.5,
+    };
+    return obj;
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,182 @@
+// ═══════════════════════════════════════════════════
+//  js/kitchen.js  —  Kitchen/Scene drawing  (Pink Theme)
+// ═══════════════════════════════════════════════════
+
+class Kitchen {
+  constructor() {
+    this._lightAlpha = 0;
+  }
+
+  update() {
+    // no lighting system needed
+  }
+
+  drawInside(ctx) {
+    // ── Floor (checkerboard pastel pink) ──────────
+    const tileSize = 40;
+    for (let row = 0; row < Math.ceil(GAME_H / tileSize) + 1; row++) {
+      for (let col = 0; col < Math.ceil(WIDTH / tileSize) + 1; col++) {
+        ctx.fillStyle = (row + col) % 2 === 0 ? COL.FLOOR_A : COL.FLOOR_B;
+        ctx.fillRect(col * tileSize, HUD_H + row * tileSize, tileSize, tileSize);
+      }
+    }
+
+    // ── Back wall ─────────────────────────────────
+    ctx.fillStyle = COL.WALL_MID;
+    ctx.fillRect(0, HUD_H, WIDTH, 80);
+    ctx.fillStyle = COL.WALL_TOP;
+    ctx.fillRect(0, HUD_H, WIDTH, 30);
+
+    // wall stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(0, HUD_H + 28, WIDTH, 6);
+
+    this._drawDecor(ctx);
+    this._drawTables(ctx);
+    this._drawKitchenArea(ctx);
+  }
+
+  drawOutside(ctx) {
+    // Simple pastel outside (used for intro/outro fallback)
+    ctx.fillStyle = '#FCE4EC';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    // sky gradient
+    const sky = ctx.createLinearGradient(0, 0, 0, HEIGHT * 0.6);
+    sky.addColorStop(0, '#F8BBD9');
+    sky.addColorStop(1, '#FCE4EC');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, WIDTH, HEIGHT * 0.6);
+    // ground
+    ctx.fillStyle = '#FFCCBC'; ctx.fillRect(0, HEIGHT * 0.6, WIDTH, HEIGHT * 0.4);
+    // storefront
+    ctx.fillStyle = '#F48FB1';
+    ctx.fillRect(80, 180, 230, 220);
+    ctx.fillStyle = '#FCE4EC'; ctx.fillRect(100, 160, 190, 30);
+    // sign
+    ctx.fillStyle = '#AD1457'; ctx.font = 'bold 16px "Segoe UI Emoji"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🍽️ My Restaurant', WIDTH/2, 175);
+    // door
+    ctx.fillStyle = '#AD1457'; ctx.fillRect(165, 310, 60, 90);
+    ctx.fillStyle = '#FCE4EC'; ctx.fillRect(170, 315, 50, 80);
+  }
+
+  highlightStation(ctx, stationId) {
+    const st = Object.values(STATIONS).find(s => s.id === stationId);
+    if (!st) return;
+    const pulse = 0.55 + Math.abs(Math.sin(Date.now() / 380)) * 0.45;
+    ctx.save();
+    ctx.shadowColor = COL.ACCENT2;
+    ctx.shadowBlur  = 24 * pulse;
+    ctx.strokeStyle = `rgba(255,128,171,${pulse})`;
+    ctx.lineWidth   = 3;
+    ctx.beginPath(); ctx.roundRect(st.x - 3, st.y - 3, st.w + 6, st.h + 6, 10); ctx.stroke();
+    ctx.restore();
+  }
+
+  _drawDecor(ctx) {
+    // Wall decorations
+    const pics = [
+      { x: 28,  y: HUD_H + 6,  w: 52, h: 36, label: '🌸' },
+      { x: 158, y: HUD_H + 4,  w: 64, h: 40, label: '🍰' },
+      { x: 296, y: HUD_H + 6,  w: 52, h: 36, label: '🌷' },
+    ];
+    pics.forEach(p => {
+      ctx.fillStyle = '#AD1457';
+      ctx.fillRect(p.x-3, p.y-3, p.w+6, p.h+6);
+      ctx.fillStyle = COL.CREAM;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.font = '22px "Segoe UI Emoji"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(p.label, p.x+p.w/2, p.y+p.h/2);
+    });
+  }
+
+  _drawTables(ctx) {
+    const tables = [
+      { x: 30,  y: HUD_H + 95,  w: 110, h: 60 },
+      { x: 140, y: HUD_H + 95,  w: 110, h: 60 },
+      { x: 250, y: HUD_H + 95,  w: 110, h: 60 },
+      { x: 30,  y: HUD_H + 190, w: 110, h: 60 },
+      { x: 140, y: HUD_H + 190, w: 110, h: 60 },
+      { x: 250, y: HUD_H + 190, w: 110, h: 60 },
+    ];
+    tables.forEach(t => {
+      // chair back at top
+      ctx.fillStyle = COL.TABLE_DARK;
+      ctx.beginPath(); ctx.roundRect(t.x+18, t.y-14, t.w-36, 18, 6); ctx.fill();
+      ctx.fillStyle = COL.TABLE;
+      ctx.beginPath(); ctx.roundRect(t.x+22, t.y-10, t.w-44, 12, 4); ctx.fill();
+
+      // table shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(t.x+4, t.y+4, t.w, t.h);
+
+      // table top
+      ctx.fillStyle = COL.TABLE_DARK;
+      ctx.beginPath(); ctx.roundRect(t.x, t.y, t.w, t.h, 6); ctx.fill();
+      ctx.fillStyle = COL.TABLE;
+      ctx.beginPath(); ctx.roundRect(t.x+4, t.y+4, t.w-8, t.h-8, 4); ctx.fill();
+
+      // center plate mat
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath(); ctx.ellipse(t.x+t.w/2, t.y+t.h/2, 20, 13, 0, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    });
+  }
+
+  _drawKitchenArea(ctx) {
+    const counterY = HUD_H + 340;  // slightly higher than STATION_Y
+    const counterH = 40;
+
+    // counter body
+    ctx.fillStyle = COL.COUNTER_BODY;
+    ctx.fillRect(0, counterY, WIDTH, counterH);
+    // counter top surface
+    ctx.fillStyle = COL.COUNTER_TOP;
+    ctx.fillRect(0, counterY, WIDTH, 12);
+    // counter shine
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(0, counterY, WIDTH, 4);
+
+    // Draw stations (on counter)
+    const stArr = Object.values(STATIONS);
+    stArr.forEach(st => this._drawStation(ctx, st));
+
+    // Flow arrows between stations
+    for (let i = 0; i < stArr.length - 1; i++) {
+      const a = stArr[i], b = stArr[i+1];
+      const ax = a.x + a.w + 1, ay = a.y + a.h/2;
+      const bx = b.x - 1,       by = b.y + b.h/2;
+      ctx.fillStyle = 'rgba(255,128,171,0.7)';
+      ctx.font = 'bold 11px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('▶', (ax+bx)/2, (ay+by)/2);
+    }
+  }
+
+  _drawStation(ctx, st) {
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(st.x+3, st.y+3, st.w, st.h);
+
+    // base
+    ctx.fillStyle = COL.STATION_BG;
+    ctx.beginPath(); ctx.roundRect(st.x, st.y, st.w, st.h, 8); ctx.fill();
+    ctx.strokeStyle = COL.STATION_BOR; ctx.lineWidth = 2; ctx.stroke();
+
+    // inner surface
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.roundRect(st.x+4, st.y+4, st.w-8, st.h-12, 5); ctx.fill();
+
+    const cx = st.x + st.w/2, cy = st.y + st.h/2 - 4;
+    if (st.img && st.img.complete && st.img.naturalWidth > 0) {
+      ctx.drawImage(st.img, cx-20, cy-20, 40, 40);
+    } else {
+      ctx.font = '28px "Segoe UI Emoji"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(st.emoji, cx, cy);
+    }
+    // label
+    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 8px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(st.label, cx, st.y + st.h - 2);
+  }
+}
