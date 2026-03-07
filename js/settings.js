@@ -13,7 +13,7 @@ const GAME_H = HEIGHT - HUD_H - PAD_H;   // 550
 // ────────────────────────────────────────────────────
 //  ⏱️  EASY TUNE
 // ────────────────────────────────────────────────────
-const SHOP_OPEN_DURATION = 90 * FPS;
+const SHOP_OPEN_DURATION = 180 * FPS; //เวลาเปิดร้าน (90 วินาที)
 const CUSTOMER_SPAWN_MIN = 5 * FPS;
 const CUSTOMER_SPAWN_MAX = 10 * FPS;
 const PLAYER_SPEED = 4;
