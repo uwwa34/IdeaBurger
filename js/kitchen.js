@@ -5,6 +5,7 @@
 class Kitchen {
   constructor() {
     this._lightAlpha = 0;
+    this.bgInside = null;   // injected by game.js setImages
   }
 
   update() {
@@ -12,7 +13,17 @@ class Kitchen {
   }
 
   drawInside(ctx) {
-    // ── Floor (checkerboard pastel pink) ──────────
+    // ── Use bg_inside.png if available ───────────
+    if (this.bgInside && this.bgInside.complete && this.bgInside.naturalWidth > 0) {
+      // Draw full background image (covers HUD_H → HEIGHT-PAD_H)
+      ctx.drawImage(this.bgInside, 0, HUD_H, WIDTH, GAME_H);
+      // Still draw stations on top (counters + station boxes)
+      this._drawKitchenArea(ctx);
+      return;
+    }
+
+    // ── Fallback: drawn background ─────────────────
+    // Floor (checkerboard pastel pink)
     const tileSize = 40;
     for (let row = 0; row < Math.ceil(GAME_H / tileSize) + 1; row++) {
       for (let col = 0; col < Math.ceil(WIDTH / tileSize) + 1; col++) {
@@ -21,17 +32,14 @@ class Kitchen {
       }
     }
 
-    // ── Back wall ─────────────────────────────────
+    // Back wall
     ctx.fillStyle = COL.WALL_MID;
     ctx.fillRect(0, HUD_H, WIDTH, 80);
     ctx.fillStyle = COL.WALL_TOP;
     ctx.fillRect(0, HUD_H, WIDTH, 30);
-
-    // wall stripe
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.fillRect(0, HUD_H + 28, WIDTH, 6);
 
-    this._drawDecor(ctx);
     this._drawTables(ctx);
     this._drawKitchenArea(ctx);
   }
@@ -93,12 +101,12 @@ class Kitchen {
 
   _drawTables(ctx) {
     const tables = [
-      { x: 30,  y: HUD_H + 95,  w: 110, h: 60 },
-      { x: 140, y: HUD_H + 95,  w: 110, h: 60 },
-      { x: 250, y: HUD_H + 95,  w: 110, h: 60 },
-      { x: 30,  y: HUD_H + 190, w: 110, h: 60 },
-      { x: 140, y: HUD_H + 190, w: 110, h: 60 },
-      { x: 250, y: HUD_H + 190, w: 110, h: 60 },
+      { x: 30,  y: HUD_H + 140, w: 110, h: 60 },
+      { x: 140, y: HUD_H + 140, w: 110, h: 60 },
+      { x: 250, y: HUD_H + 140, w: 110, h: 60 },
+      { x: 30,  y: HUD_H + 255, w: 110, h: 60 },
+      { x: 140, y: HUD_H + 255, w: 110, h: 60 },
+      { x: 250, y: HUD_H + 255, w: 110, h: 60 },
     ];
     tables.forEach(t => {
       // chair back at top
@@ -124,7 +132,7 @@ class Kitchen {
   }
 
   _drawKitchenArea(ctx) {
-    const counterY = HUD_H + 340;  // slightly higher than STATION_Y
+    const counterY = HUD_H + 365;  // just above STATION_Y
     const counterH = 40;
 
     // counter body

@@ -9,12 +9,12 @@
 // Row 0: y = HUD_H+90,  h=60  → top-of-table y = HUD_H+90,   center y = HUD_H+120
 // Row 1: y = HUD_H+180, h=60  → top-of-table y = HUD_H+180,  center y = HUD_H+210
 const TABLE_DEFS = [
-  { cx: 85,  tableTop: HUD_H + 90,  tableCY: HUD_H + 120 },
-  { cx: 195, tableTop: HUD_H + 90,  tableCY: HUD_H + 120 },
-  { cx: 305, tableTop: HUD_H + 90,  tableCY: HUD_H + 120 },
-  { cx: 85,  tableTop: HUD_H + 180, tableCY: HUD_H + 210 },
-  { cx: 195, tableTop: HUD_H + 180, tableCY: HUD_H + 210 },
-  { cx: 305, tableTop: HUD_H + 180, tableCY: HUD_H + 210 },
+  { cx: 85,  tableTop: HUD_H + 140, tableCY: HUD_H + 170 },
+  { cx: 195, tableTop: HUD_H + 140, tableCY: HUD_H + 170 },
+  { cx: 305, tableTop: HUD_H + 140, tableCY: HUD_H + 170 },
+  { cx: 85,  tableTop: HUD_H + 255, tableCY: HUD_H + 285 },
+  { cx: 195, tableTop: HUD_H + 255, tableCY: HUD_H + 285 },
+  { cx: 305, tableTop: HUD_H + 255, tableCY: HUD_H + 285 },
 ];
 
 class Customer {
@@ -24,7 +24,7 @@ class Customer {
 
     // Character sits above the table top
     this.seatX  = td.cx;
-    this.seatY  = td.tableTop - 1;  // character feet at table top -28
+    this.seatY  = td.tableTop;  // sprite feet drawn at cy, so set cy = tableTop
 
     // Food dish shown at table center
     this.dishX  = td.cx;
@@ -55,6 +55,7 @@ class Customer {
     // entry animation — slide in from left
     this.x = -60;
     this.y = this.seatY;
+    this.walkTimer = 0;   // sway animation counter
 
     this.money = 0;
 
@@ -186,26 +187,68 @@ class Customer {
   }
 
   _drawCharacter(ctx, cx, cy) {
-    // shadow
-    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    ctx.beginPath(); ctx.ellipse(cx, cy + 20, 15, 5, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    const img    = this.type.img;
+    const isWalking = (this.state === 'entering' || this.state === 'leaving');
+    const isSeated  = !isWalking;
 
-    // body
-    ctx.fillStyle = this.type.color;
-    ctx.beginPath(); ctx.roundRect(cx-13, cy-8, 26, 28, 6); ctx.fill();
+    // Walking sway: increment timer when moving
+    if (isWalking) this.walkTimer++;
 
-    // head
-    ctx.fillStyle = '#FFCC99';
-    ctx.beginPath(); ctx.arc(cx, cy-22, 14, 0, Math.PI*2); ctx.fill();
+    const spriteW = 44;
+    const spriteH = 56;
 
-    // face emoji
-    ctx.font = '20px "Segoe UI Emoji"';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(this.type.emoji, cx, cy - 22);
+    // Shadow
+    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.13)';
+    ctx.beginPath(); ctx.ellipse(cx, cy + 2, 15, 5, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.restore();
 
-    if (this.type.isVIP) {
-      ctx.save(); ctx.shadowColor = COL.GOLD; ctx.shadowBlur = 12;
-      ctx.font = '14px "Segoe UI Emoji"'; ctx.fillText('👑', cx, cy - 42); ctx.restore();
+    if (img && img.complete && img.naturalWidth > 0) {
+      // ── Sprite image ───────────────────────────
+      ctx.save();
+
+      if (isWalking) {
+        // Sway: horizontal lean + vertical bob
+        const sway  = Math.sin(this.walkTimer * 0.30) * 5;
+        const bobV  = Math.abs(Math.sin(this.walkTimer * 0.30)) * 3;
+        // Flip when moving left (leaving)
+        if (this.state === 'leaving') {
+          ctx.translate(cx, 0); ctx.scale(-1, 1); ctx.translate(-cx, 0);
+        }
+        ctx.drawImage(img, cx - spriteW/2 + sway, cy - spriteH + bobV, spriteW, spriteH);
+      } else {
+        // Seated: gentle idle sway
+        const idleSway = Math.sin(Date.now() * 0.001 + this.tableIdx) * 1.5;
+        ctx.drawImage(img, cx - spriteW/2 + idleSway, cy - spriteH, spriteW, spriteH);
+      }
+
+      // VIP crown on top of sprite
+      if (this.type.isVIP) {
+        ctx.save(); ctx.shadowColor = COL.GOLD; ctx.shadowBlur = 12;
+        ctx.font = '14px "Segoe UI Emoji"';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('👑', cx, cy - spriteH - 10);
+        ctx.restore();
+      }
+      ctx.restore();
+
+    } else {
+      // ── Fallback: drawn character ───────────────
+      // Walking sway on fallback too
+      const sway = isWalking ? Math.sin(this.walkTimer * 0.30) * 4 : 0;
+      const bobV = isWalking ? Math.abs(Math.sin(this.walkTimer * 0.30)) * 3 : 0;
+      const drawCx = cx + sway;
+
+      ctx.fillStyle = this.type.color;
+      ctx.beginPath(); ctx.roundRect(drawCx-13, cy-8-bobV, 26, 28, 6); ctx.fill();
+      ctx.fillStyle = '#FFCC99';
+      ctx.beginPath(); ctx.arc(drawCx, cy-22-bobV, 14, 0, Math.PI*2); ctx.fill();
+      ctx.font = '20px "Segoe UI Emoji"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(this.type.emoji, drawCx, cy - 22 - bobV);
+      if (this.type.isVIP) {
+        ctx.save(); ctx.shadowColor = COL.GOLD; ctx.shadowBlur = 12;
+        ctx.font = '14px "Segoe UI Emoji"'; ctx.fillText('👑', drawCx, cy - 42 - bobV); ctx.restore();
+      }
     }
   }
 

@@ -26,7 +26,7 @@ class Player {
     // Player feet just below counter front: HUD_H+370+62+4 = HUD_H+436
     // fixedY = feet_y - h = HUD_H+436 - 114 = HUD_H+322
     // We want player BELOW station visually, so set fixedY so feet = STATION_Y+66
-    this.fixedY = HUD_H + 370 + 66 - this.h;  // = HUD_H+322
+    this.fixedY = HUD_H + 432;                   // top just below station bottom (HUD_H+432)
 
     // Cooking state
     this.holding    = null;
@@ -89,11 +89,12 @@ class Player {
     this._stepReady = false;
     this.cookStep++;
     if (this.cookStep >= this.activeMenu.steps.length) {
-      // All done — holding food
-      this.holding   = this.activeMenu.id;
-      this.busy      = false;
-      this.atStation = null;
-      return true;  // finished
+      // All done — holding food, clear recipe state
+      this.holding    = this.activeMenu.id;
+      this.busy       = false;
+      this.atStation  = null;
+      this.activeMenu = null;   // ← clear so _handleAct routes to serve path
+      return true;
     }
     this.cookTimer = this.activeMenu.cookTime[this.cookStep] * FPS;
     this.cookTotal = this.activeMenu.cookTime[this.cookStep] * FPS;
@@ -117,7 +118,7 @@ class Player {
     const stCx = st.x + st.w/2;
     const dx  = Math.abs(px - stCx);
     const fy  = this.y + this.h;   // feet y
-    return dx < st.w/2 + 20 && fy >= st.y - 10 && fy <= st.y + st.h + 50;
+    return dx < st.w/2 + 20 && fy >= st.y - 10 && fy <= st.y + st.h + 180;
   }
 
   // ─── Draw ─────────────────────────────────────

@@ -13,7 +13,7 @@ const GAME_H = HEIGHT - HUD_H - PAD_H;   // 550
 // ────────────────────────────────────────────────────
 //  ⏱️  EASY TUNE
 // ────────────────────────────────────────────────────
-const SHOP_OPEN_DURATION = 180 * FPS; //เวลาเปิดร้าน (90 วินาที)
+const SHOP_OPEN_DURATION = 180 * FPS; // Time the shop stays open (in frames)
 const CUSTOMER_SPAWN_MIN = 5 * FPS;
 const CUSTOMER_SPAWN_MAX = 10 * FPS;
 const PLAYER_SPEED = 4;
@@ -102,12 +102,12 @@ const MENU = {
 };
 
 const CUSTOMER_TYPES = [
-  { id: 'student', name: 'นักเรียน',        emoji: '👦', color: '#B2EBF2', patience: 1.0, tip: 0    },
-  { id: 'office',  name: 'มนุษย์เงินเดือน', emoji: '👔', color: '#C5CAE9', patience: 0.9, tip: 5    },
-  { id: 'elder',   name: 'ผู้สูงอายุ',       emoji: '👴', color: '#DCEDC8', patience: 1.2, tip: 10   },
-  { id: 'couple',  name: 'คู่รัก',           emoji: '💑', color: '#F8BBD9', patience: 0.8, tip: 5    },
-  { id: 'tourist', name: 'นักท่องเที่ยว',    emoji: '🧳', color: '#B2DFDB', patience: 1.1, tip: 0    },
-  { id: 'vip',     name: 'VIP ⭐',           emoji: '👑', color: '#FFF9C4', patience: 0.7, tip: 30, isVIP: true },
+  { id: 'student', name: 'นักเรียน',        emoji: '👦', color: '#B2EBF2', patience: 1.0, tip: 0,  imgKey: 'custStudent' },
+  { id: 'office',  name: 'มนุษย์เงินเดือน', emoji: '👔', color: '#C5CAE9', patience: 0.9, tip: 5,  imgKey: 'custOffice'  },
+  { id: 'elder',   name: 'ผู้สูงอายุ',       emoji: '👴', color: '#DCEDC8', patience: 1.2, tip: 10, imgKey: 'custElder'   },
+  { id: 'couple',  name: 'คู่รัก',           emoji: '💑', color: '#F8BBD9', patience: 0.8, tip: 5,  imgKey: 'custCouple'  },
+  { id: 'tourist', name: 'นักท่องเที่ยว',    emoji: '🧳', color: '#B2DFDB', patience: 1.1, tip: 0,  imgKey: 'custTourist' },
+  { id: 'vip',     name: 'VIP ⭐',           emoji: '👑', color: '#FFF9C4', patience: 0.7, tip: 30, imgKey: 'custVip', isVIP: true },
 ];
 
 const STAR_THRESHOLDS = [0.4, 0.65, 0.85];

@@ -54,6 +54,8 @@ class Game {
   setImages(images) {
     this.images = images;
     this.player.sprite = images.player || null;
+
+    // Menu images
     const imgMap = {
       burger: images.menuBurger, chicken: images.menuChicken,
       fries:  images.menuFries,  donut:   images.menuDonut,
@@ -61,6 +63,8 @@ class Game {
     for (const [id, img] of Object.entries(imgMap)) {
       if (MENU[id] && img) MENU[id].img = img;
     }
+
+    // Station images
     const stMap = {
       prep: images.stationPrep, cook: images.stationCook,
       plate: images.stationPlate, serve: images.stationServe,
@@ -68,6 +72,14 @@ class Game {
     for (const [id, img] of Object.entries(stMap)) {
       if (STATIONS[id.toUpperCase()] && img) STATIONS[id.toUpperCase()].img = img;
     }
+
+    // Background inside
+    this.kitchen.bgInside = images.bgInside || null;
+
+    // Customer type sprites
+    CUSTOMER_TYPES.forEach(ct => {
+      if (ct.imgKey && images[ct.imgKey]) ct.img = images[ct.imgKey];
+    });
   }
 
   setSounds(sounds) {
@@ -77,18 +89,29 @@ class Game {
   }
 
   _startBGM() {
-    try {
-      const bgm = this._sounds['bgm'];
-      if (!bgm) return;
-      bgm.loop   = true;
-      bgm.volume = 0.35;
-      const p = bgm.play();
-      if (p && typeof p.catch === 'function') p.catch(() => {
-        // Autoplay blocked — resume on first user interaction
-        const resume = () => { bgm.play().catch(()=>{}); document.removeEventListener('pointerdown', resume); };
-        document.addEventListener('pointerdown', resume, { once: true });
+    const bgm = this._sounds['bgm'];
+    if (!bgm) return;
+    bgm.loop   = true;
+    bgm.volume = 0.35;
+    window._bgmEl = bgm;  // expose for global audio unlock
+
+    const doPlay = () => {
+      if (bgm.paused) bgm.play().catch(() => {});
+    };
+
+    // Try immediately (works on iOS after first interaction during loading)
+    const p = bgm.play();
+    if (p instanceof Promise) {
+      p.catch(() => {
+        // Autoplay blocked — wait for ANY user interaction then play
+        const evs = ['touchstart', 'touchend', 'pointerdown', 'mousedown', 'keydown'];
+        const unlock = () => {
+          doPlay();
+          evs.forEach(ev => document.removeEventListener(ev, unlock));
+        };
+        evs.forEach(ev => document.addEventListener(ev, unlock, { once: false, passive: true }));
       });
-    } catch(e) {}
+    }
   }
 
   _stopBGM() {
@@ -102,10 +125,10 @@ class Game {
     try {
       const snd = this._sounds[key];
       if (!snd) return;
+      // Synth SFX objects expose cloneNode() that returns a play-once wrapper
+      // HTMLAudioElement: clone to allow overlapping playback
       if (typeof snd.cloneNode === 'function') {
-        const c = snd.cloneNode(true);
-        c.volume = snd.volume || 0.55;
-        c.play().catch(() => {});
+        snd.cloneNode().play();
       } else if (typeof snd.play === 'function') {
         snd.play().catch(() => {});
       }
@@ -181,7 +204,10 @@ class Game {
     this.hud.update();
 
     if (!this.menuSelecting) {
-      this.player.update(this.joypad.getDx(), 0);
+      // Joypad L/R: one-shot snap per press, same as keyboard
+      if (this.joypad.consumeLeft())  this._keyboardMove(-1);
+      if (this.joypad.consumeRight()) this._keyboardMove(1);
+      this.player.update(0, 0);  // keep player at fixedY
     }
 
     // Station proximity
@@ -190,31 +216,34 @@ class Game {
       if (this.player.overlapsStation(st)) { this.player.atStation = st.id; break; }
     }
 
-    // Cook timer → step ready
+    // Cook timer → step ready (or auto-complete last step)
     if (this.player.busy && this.player.cookTimer <= 0 && !this.player._stepReady) {
-      this.player._stepReady = true;
       const nextStepIdx = this.player.cookStep + 1;
-      const nextId = this.player.activeMenu?.steps[nextStepIdx];
-      const nextSt = nextId ? Object.values(STATIONS).find(s => s.id === nextId) : null;
-      if (nextSt) {
-        this._addNotification(`✅ เสร็จแล้ว! ไปที่ ${nextSt.label}`, COL.GREEN);
+      const isLastStep  = nextStepIdx >= (this.player.activeMenu?.steps.length || 0);
+
+      if (isLastStep) {
+        // Last step done: auto-complete immediately (no A needed)
+        this.player._stepReady = true;    // must be true before startNextStep()
+        this.player.busy = false;
+        this.player.cookTimer = 0;
+        this.player.startNextStep();      // sets holding = menu.id, busy=false
+        const menuName = MENU[this.player.holding]?.name || '';
+        this._addNotification('🍽️ ' + menuName + ' พร้อมแล้ว! ไปเสิร์ฟ 🛎️', COL.GREEN);
+        this._playSound('serve');
       } else {
-        // Last step done
-        this._addNotification('✅ เสร็จ! ไปที่ เสิร์ฟ 🛎️', COL.GREEN);
+        // Middle step done: mark ready, player walks to next station
+        this.player._stepReady = true;
+        const nextId = this.player.activeMenu?.steps[nextStepIdx];
+        const nextSt = Object.values(STATIONS).find(s => s.id === nextId);
+        this._addNotification('✅ เสร็จ! ไปที่ ' + (nextSt?.label || nextId), COL.GREEN);
       }
     }
 
     // Menu joypad navigation
     if (this.menuSelecting) {
       const menuItems = Object.values(MENU);
-      if (this.joypad.getDx() !== 0) {
-        // Only trigger once per direction press
-        if (!this._menuNavCD || this._menuNavCD <= 0) {
-          this.menuSelectIdx = (this.menuSelectIdx + (this.joypad.getDx() > 0 ? 1 : -1) + menuItems.length) % menuItems.length;
-          this._menuNavCD = 15;
-        }
-      }
-      if (this._menuNavCD > 0) this._menuNavCD--;
+      if (this.joypad.consumeLeft())  this.menuSelectIdx = (this.menuSelectIdx - 1 + menuItems.length) % menuItems.length;
+      if (this.joypad.consumeRight()) this.menuSelectIdx = (this.menuSelectIdx + 1) % menuItems.length;
     }
 
     // ACT / BOMB
@@ -282,54 +311,37 @@ class Game {
       return;
     }
 
-    // ── Has active recipe ────────────────────────
+    // ── Has active recipe (middle steps) ──────────
     if (this.player.activeMenu) {
       const reqId = this.player.activeMenu.steps[this.player.cookStep];
 
       // Timer still running → wait
       if (this.player.busy && this.player.cookTimer > 0) {
         const sec = Math.ceil(this.player.cookTimer / FPS);
-        this._addNotification(`⏳ รออีก ${sec}s...`, '#aaa');
+        this._addNotification('⏳ รออีก ' + sec + 's...', '#aaa');
         return;
       }
 
-      // Step done → must be at NEXT station
+      // Step done (_stepReady = true) → player must walk to next station and press A
       if (this.player._stepReady) {
         const nextIdx = this.player.cookStep + 1;
         const nextId  = this.player.activeMenu.steps[nextIdx];
-        const isLastStep = (nextIdx >= this.player.activeMenu.steps.length);
-
-        if (isLastStep) {
-          // Last step completed → food is ready
-          if (st === reqId || !nextId) {
-            const done = this.player.startNextStep();
-            this._addNotification(`✅ ${MENU[this.player.holding]?.name} พร้อมเสิร์ฟ!`, COL.GREEN);
-            this._playSound('serve');
-          } else {
-            this._playSound('error');
-            this._addNotification('ยืนผิดจุด! 🔔', COL.RED);
-          }
+        if (st === nextId) {
+          this.player.startNextStep();  // advances step, starts next timer
+          const nextStLabel = Object.values(STATIONS).find(s => s.id === nextId)?.label || nextId;
+          this._addNotification('▶ เริ่ม ' + nextStLabel, COL.PRIMARY);
         } else {
-          // Must walk to next station and press A there
-          if (st === nextId) {
-            this.player.startNextStep();  // advances cookStep, starts new timer
-            this._addNotification(`▶ เริ่มขั้นตอน ${Object.values(STATIONS).find(s=>s.id===nextId)?.label}`, COL.PRIMARY);
-          } else {
-            this._playSound('error');
-            const nextSt = Object.values(STATIONS).find(s => s.id === nextId);
-            this._addNotification(`ไปที่ ${nextSt?.label} ก่อน!`, COL.RED);
-          }
+          this._playSound('error');
+          const nextSt = Object.values(STATIONS).find(s => s.id === nextId);
+          this._addNotification('ไปที่ ' + (nextSt?.label || nextId) + ' ก่อน!', COL.RED);
         }
         return;
       }
 
-      // Idle at wrong station
+      // Idle (shouldn't happen normally — timer=0 but startNextStep not called yet)
       if (st !== reqId) {
         this._playSound('error');
         this._addNotification('ยืนผิดจุด! 🔔', COL.RED);
-      } else {
-        const sec = Math.ceil(this.player.cookTimer / FPS);
-        this._addNotification(`⏳ รออีก ${sec}s...`, '#aaa');
       }
       return;
     }

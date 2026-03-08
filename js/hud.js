@@ -103,6 +103,8 @@ class VirtualJoypad {
     this._touchMap = {};
     this._shootPressed = false;
     this._bombPressed  = false;
+    this._leftEdge  = false;
+    this._rightEdge = false;
     this.dx = 0; this.dy = 0;
 
     this._bind(canvas);
@@ -122,6 +124,8 @@ class VirtualJoypad {
     if (wasOff) {
       if (name==='shoot') this._shootPressed=true;
       if (name==='bomb')  this._bombPressed=true;
+      if (name==='left')  this._leftEdge=true;
+      if (name==='right') this._rightEdge=true;
     }
   }
 
@@ -176,6 +180,8 @@ class VirtualJoypad {
 
   consumeAct()  { const v=this._shootPressed; this._shootPressed=false; return v; }
   consumeBomb() { const v=this._bombPressed;  this._bombPressed=false;  return v; }
+  consumeLeft()  { const v=this._leftEdge;  this._leftEdge=false;  return v; }
+  consumeRight() { const v=this._rightEdge; this._rightEdge=false; return v; }
 
   draw(ctx) {
     // pad bg
