@@ -272,7 +272,8 @@ class Game {
       this._addNotification('ยกเลิก', '#aaa');
       return;
     }
-    if (this.player.activeMenu) {
+    // Cancel mid-cook OR drop food already holding
+    if (this.player.activeMenu || this.player.holding) {
       this.player.clearFood();
       this._addNotification('❌ ยกเลิกการทำอาหาร', COL.RED);
     }
