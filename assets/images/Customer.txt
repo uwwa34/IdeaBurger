@@ -1,0 +1,7 @@
+assets/images/
+cust_student.png
+cust_office.png
+cust_elder.png
+cust_couple.png
+cust_tourist.png
+cust_vip.png
