@@ -13,7 +13,7 @@ const GAME_H = HEIGHT - HUD_H - PAD_H;   // 550
 // ────────────────────────────────────────────────────
 //  ⏱️  EASY TUNE
 // ────────────────────────────────────────────────────
-const SHOP_OPEN_DURATION = 180 * FPS; // Time the shop stays open (in frames)
+const SHOP_OPEN_DURATION = 150 * FPS; // Time the shop stays open (in frames)
 const CUSTOMER_SPAWN_MIN = 5 * FPS;
 const CUSTOMER_SPAWN_MAX = 10 * FPS;
 const PLAYER_SPEED = 4;
