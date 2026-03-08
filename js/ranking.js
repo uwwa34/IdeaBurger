@@ -238,7 +238,7 @@ class RankingScreen {
 
     if (!list.length) {
       ctx.fillStyle = COL.PRIMARY; ctx.font='16px Arial'; ctx.textAlign='center';
-      ctx.fillText('ยังไม่มียอดขาย', WIDTH/2, 300);
+      ctx.fillText('ยังไม่มีข้อมูล', WIDTH/2, 300);
     }
 
     // Play again

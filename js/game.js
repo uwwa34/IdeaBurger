@@ -360,7 +360,7 @@ class Game {
       this.menuSelectIdx  = 0;
       this._menuNavCD     = 0;
     } else if (st) {
-      this._addNotification('ไปที่ 🔪 เตรียมของ เพื่อเลือกเมนู', COL.PRIMARY);
+      this._addNotification('ไปที่ เตรียมของ เพื่อเลือกเมนู', COL.PRIMARY);
       this._playSound('error');
     } else {
       this._addNotification('เดินไปที่สถานีก่อน!', '#aaa');
@@ -673,7 +673,7 @@ class Game {
       ctx.beginPath(); ctx.roundRect(WIDTH/2-130, btnY, 260, 50, 14); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#fff'; ctx.font='bold 17px "Segoe UI Emoji"';
       ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText('📝 บันทึกคะแนน', WIDTH/2, btnY+25);
+      ctx.fillText('📝 บันทึกยอดขาย', WIDTH/2, btnY+25);
       ctx.restore();
     }
   }
@@ -881,7 +881,13 @@ class Game {
         return;
       }
 
-      if (this.state === STATE.SCORE && this.scoreReady && y > 460) this._goToRanking();
+      if (this.state === STATE.SCORE && this.scoreReady) {
+        // btnY = Math.min(540, cardY + cardH + 30) = min(540, 108+220+30) = 358
+        const _btnY = Math.min(540, 108 + (4*44+24+20) + 30);
+        if (y >= _btnY && y <= _btnY + 50 && x >= WIDTH/2-130 && x <= WIDTH/2+130) {
+          this._goToRanking();
+        }
+      }
     };
 
     canvas.addEventListener('click', e => {
