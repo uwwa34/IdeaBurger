@@ -118,6 +118,21 @@
     document.addEventListener(ev, unlock, {passive:true, capture:true});
   });
 })();
+
+// ── Pause BGM when tab/app loses focus ──────────────────────────────
+(function() {
+  function pauseBGM() {
+    try { if (window._bgmEl && !window._bgmEl.paused) window._bgmEl.pause(); } catch(e) {}
+  }
+  function resumeBGM() {
+    try { if (window._bgmEl && window._bgmEl.paused) window._bgmEl.play().catch(function(){}); } catch(e) {}
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) pauseBGM(); else resumeBGM();
+  });
+  window.addEventListener('blur', pauseBGM);
+  window.addEventListener('focus', resumeBGM);
+})();
 </script>
 
 <div id="wrapper">
