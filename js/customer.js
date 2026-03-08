@@ -338,6 +338,14 @@ class CustomerManager {
 
   update(shopOpen) {
     this.customers.forEach(c => c.update());
+    // Count angry BEFORE removing — so countNewAngry() catches all
+    // (isGone angry customers get removed this frame; flag them first)
+    for (const c of this.customers) {
+      if (!c._angerCounted && c.isGone() && c.stars === 0) {
+        c._angerCounted = true;
+        this._pendingAnger = (this._pendingAnger || 0) + 1;
+      }
+    }
     this.customers = this.customers.filter(c => {
       if (c.isGone()) {
         this.seats[c.tableIdx].occupied = false;
@@ -373,5 +381,18 @@ class CustomerManager {
 
   countAngry() {
     return this.customers.filter(c => c.state === 'angry' || (c.isGone() && c.stars === 0)).length;
+  }
+
+  // Returns number of customers who JUST became angry this frame (edge detection)
+  countNewAngry() {
+    let n = this._pendingAnger || 0;
+    this._pendingAnger = 0;
+    for (const c of this.customers) {
+      if (!c._angerCounted && c.state === 'angry') {
+        c._angerCounted = true;
+        n++;
+      }
+    }
+    return n;
   }
 }

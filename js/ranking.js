@@ -40,13 +40,14 @@ class RankingScreen {
     this._keyHandler = e => this._handleKey(e);
   }
 
-  show(score, onDone) {
-    this.playerScore = score;
-    this.playerName  = '';
-    this.mode        = 'entry';
-    this.visible     = true;
-    this._onDone     = onDone;
-    this.playerRank  = RankingSystem.getRank(score);
+  show(score, details, onDone) {
+    this.playerScore  = score;
+    this.playerName   = '';
+    this.mode         = 'entry';
+    this.visible      = true;
+    this._onDone      = onDone;
+    this._details     = details || {};   // { menuSales, angerCount, servedCount }
+    this.playerRank   = RankingSystem.getRank(score);
     window.addEventListener('keydown', this._keyHandler);
   }
 
@@ -107,6 +108,10 @@ class RankingScreen {
   draw() {
     if (!this.visible) return;
     const ctx = this.ctx;
+    // Reset any inherited canvas state from game draw
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setTransform(1,0,0,1,0,0);
     this._cursorT++;
     if (this._cursorT % 30 === 0) this._cursor = !this._cursor;
 
@@ -196,14 +201,15 @@ class RankingScreen {
     ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 2; ctx.stroke();
 
     // Title
-    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 26px "Segoe UI Emoji"';
+    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 20px "Segoe UI Emoji"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🏆 ยอดขายสูงสุด 🏆', WIDTH/2, 96);
+    ctx.fillText('🏆 ยอดขายสูงสุด 🏆', WIDTH/2, 88);
 
+    // ── Ranking list ────────────────────────────────
     const list = this.ranking.length ? this.ranking : RankingSystem.load();
     const rowH = 48, startY = 118;
 
-    list.forEach((entry, i) => {
+    list.slice(0, RANKING_MAX).forEach((entry, i) => {
       const y = startY + i*rowH;
       const isMe = (i+1 === this.playerRank && entry.score === this.playerScore);
 

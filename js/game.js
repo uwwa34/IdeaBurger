@@ -43,8 +43,9 @@ class Game {
     this.menuSelectIdx   = 0;   // highlighted menu card index (joypad nav)
     this._menuCardBounds = null;
     this.notifications   = [];
-    this.angerCount      = 0;
+    this.angerCount      = 0;   // cumulative total angry customers
     this.servedCount     = 0;
+    this.menuSales       = {};   // { menuId: { count, revenue } }
 
     this._bindKeys();
     this._bindTap(canvas);
@@ -252,9 +253,10 @@ class Game {
 
     // Customers
     this.custMgr.update(true);
-    const nowAngry = this.custMgr.countAngry();
-    if (nowAngry > this.angerCount) {
-      this.angerCount = nowAngry;
+    // Detect newly-gone-angry customers (edge: state just became 'angry' or gone with stars=0)
+    const nowAngry = this.custMgr.countNewAngry();
+    if (nowAngry > 0) {
+      this.angerCount += nowAngry;
       this.hud.updateStarRating(this.angerCount);
       this._addNotification('😤 ลูกค้าโกรธ!', COL.RED);
       this._playSound('anger');
@@ -298,6 +300,11 @@ class Game {
           const money = cust.serve();
           this.hud.addMoney(money);
           this.servedCount++;
+          // Track per-menu sales
+          const sid = this.player.holding;
+          if (!this.menuSales[sid]) this.menuSales[sid] = { count: 0, revenue: 0 };
+          this.menuSales[sid].count++;
+          this.menuSales[sid].revenue += money;
           this._addNotification(`🎉 +฿${money}!`, COL.GOLD);
           this._playSound('coin');
           this.player.clearFood();
@@ -579,47 +586,94 @@ class Game {
     ctx.restore();
 
     // Score card
+    const cardY = 108;
+    const cardH = 4 * 44 + 24 + 20;
     if (this.scoreTimer > 20) {
       const ca = Math.min(1, (this.scoreTimer-20)/40);
       ctx.save(); ctx.globalAlpha = ca;
-      ctx.fillStyle = 'rgba(255,240,248,0.96)';
-      ctx.beginPath(); ctx.roundRect(28, 110, WIDTH-56, 280, 18); ctx.fill();
+
+      // ── Card ──────────────────────────────────────
+
+      ctx.fillStyle = 'rgba(255,240,248,0.97)';
+      ctx.beginPath(); ctx.roundRect(22, cardY, WIDTH-44, cardH, 18); ctx.fill();
       ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 2; ctx.stroke();
 
-      const rows = [
-        { label:'💰 รายได้รวม',    val:`฿${this.hud.money.toLocaleString()}` },
-        { label:'🍳 เสิร์ฟสำเร็จ', val:`${this.servedCount} จาน` },
-        { label:'😤 ลูกค้าโกรธ',   val:`${this.angerCount} คน` },
+      // ── Summary rows ──────────────────────────────
+      const summaryItems = [
+        { label:'💰 รายได้รวม',    val:'฿' + this.hud.money.toLocaleString() },
+        { label:'🍳 เสิร์ฟสำเร็จ', val: this.servedCount + ' จาน' },
+        { label:'😤 ลูกค้าโกรธ',   val: this.angerCount  + ' คน' },
         { label:'⭐ ระดับร้าน',     val:'⭐'.repeat(Math.max(0,this.hud.starRating))||'☆☆☆' },
       ];
-      rows.forEach((row,i) => {
-        const delay = 40+i*20;
-        const ra = this.scoreTimer > delay ? Math.min(1,(this.scoreTimer-delay)/20) : 0;
+      summaryItems.forEach((row, i) => {
+        const delay = 40 + i*18;
+        const ra = this.scoreTimer > delay ? Math.min(1,(this.scoreTimer-delay)/18) : 0;
         if (!ra) return;
-        ctx.save(); ctx.globalAlpha = ra*ca;
-        const ry = 148 + i*60;
-        if (i>0) {
-          ctx.strokeStyle='rgba(244,143,177,0.3)'; ctx.lineWidth=1;
-          ctx.beginPath(); ctx.moveTo(44,ry-8); ctx.lineTo(WIDTH-44,ry-8); ctx.stroke();
+        ctx.save(); ctx.globalAlpha = ra * ca;
+        const ry = cardY + 20 + i * 44;
+        if (i > 0) {
+          ctx.strokeStyle = 'rgba(244,143,177,0.25)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(36, ry-4); ctx.lineTo(WIDTH-36, ry-4); ctx.stroke();
         }
-        ctx.fillStyle = COL.TEXT_MAIN; ctx.font='14px "Segoe UI Emoji"';
-        ctx.textAlign='left'; ctx.fillText(row.label, 46, ry+12);
-        ctx.fillStyle = COL.PRIMARY_D; ctx.font='bold 20px "Segoe UI Emoji"';
-        ctx.textAlign='right'; ctx.fillText(row.val, WIDTH-46, ry+16);
+        ctx.fillStyle = COL.TEXT_MAIN; ctx.font = '13px "Segoe UI Emoji"';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(row.label, 38, ry + 14);
+        ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 18px "Segoe UI Emoji"';
+        ctx.textAlign = 'right'; ctx.fillText(row.val, WIDTH-36, ry + 16);
         ctx.restore();
       });
+
+      // ── Menu icon strip (images from /assets/, no text labels) ──
+      const iconDelay = 40 + summaryItems.length * 18 + 10;
+      const iconAlpha = this.scoreTimer > iconDelay ? Math.min(1,(this.scoreTimer-iconDelay)/20) : 0;
+      if (iconAlpha > 0) {
+        const secY = cardY + 4 * 44 + 24;
+        ctx.save(); ctx.globalAlpha = iconAlpha * ca;
+        ctx.strokeStyle = 'rgba(244,143,177,0.3)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(36, secY); ctx.lineTo(WIDTH-36, secY); ctx.stroke();
+
+        const soldItems = Object.entries(this.menuSales).filter(([,s])=>s.count>0);
+        const iconSize = 44, gap = 12;
+        const totalW = soldItems.length * iconSize + (soldItems.length-1) * gap;
+        const startX = (WIDTH - totalW) / 2;
+        const iconY  = secY + 6;
+
+        soldItems.forEach(([id, s], i) => {
+          const m = MENU[id];
+          const ix = startX + i * (iconSize + gap);
+          // bg pill
+          ctx.fillStyle = 'rgba(244,143,177,0.18)';
+          ctx.beginPath(); ctx.roundRect(ix, iconY, iconSize, iconSize, 8); ctx.fill();
+          // image or emoji fallback
+          if (m?.img && m.img.complete && m.img.naturalWidth > 0) {
+            ctx.drawImage(m.img, ix+4, iconY+4, iconSize-8, iconSize-14);
+          } else {
+            ctx.font = '26px "Segoe UI Emoji"';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(m?.emoji||'🍽️', ix + iconSize/2, iconY + iconSize/2 - 4);
+          }
+          // count badge
+          ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 11px Arial';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillText('×' + s.count, ix + iconSize/2, iconY + iconSize - 1);
+        });
+        ctx.restore();
+      }
+
       ctx.restore();
     }
+
+    const btnY = Math.min(540, cardY + cardH + 30);
 
     if (this.scoreReady) {
       const ba = Math.min(1,(this.scoreTimer-90)/20);
       const pulse = 0.65 + Math.sin(Date.now()/400)*0.35;
       ctx.save(); ctx.globalAlpha = ba*pulse;
       ctx.fillStyle = COL.PRIMARY; ctx.strokeStyle = COL.PRIMARY_D; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.roundRect(WIDTH/2-130, 430, 260, 54, 14); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(WIDTH/2-130, btnY, 260, 50, 14); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#fff'; ctx.font='bold 17px "Segoe UI Emoji"';
       ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText('📝 บันทึกคะแนน', WIDTH/2, 457);
+      ctx.fillText('📝 บันทึกคะแนน', WIDTH/2, btnY+25);
       ctx.restore();
     }
   }
@@ -827,7 +881,7 @@ class Game {
         return;
       }
 
-      if (this.state === STATE.SCORE && this.scoreReady && y > 420) this._goToRanking();
+      if (this.state === STATE.SCORE && this.scoreReady && y > 460) this._goToRanking();
     };
 
     canvas.addEventListener('click', e => {
@@ -859,7 +913,11 @@ class Game {
 
   _goToRanking() {
     this.state = STATE.RANKING;
-    this.rankScreen.show(this.hud.money, () => this.restart());
+    this.rankScreen.show(
+      this.hud.money,
+      { menuSales: this.menuSales, angerCount: this.angerCount, servedCount: this.servedCount },
+      () => this.restart()
+    );
   }
 
   restart() {
@@ -867,7 +925,7 @@ class Game {
     this.introPhase = 0; this.introTimer = 0; this.introTextAlpha = 0;
     this.endPhase = 0; this.endTimer = 0;
     this.scoreTimer = 0; this.scoreReady = false;
-    this.angerCount = 0; this.servedCount = 0;
+    this.angerCount = 0; this.servedCount = 0; this.menuSales = {};
     this.menuSelecting = false; this.menuSelectIdx = 0;
     this._menuCardBounds = null; this.notifications = [];
 
