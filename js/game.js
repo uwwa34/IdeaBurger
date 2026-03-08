@@ -514,7 +514,7 @@ class Game {
       lines.forEach((line, i) => ctx.fillText(line, WIDTH/2, lineStartY + i * 28));
 
       ctx.fillStyle = COL.PRIMARY; ctx.font = '11px Arial';
-      ctx.fillText('แตะหรือกด A เพื่อข้าม ▶', WIDTH/2, bubbleY + bh - 10);
+      ctx.fillText('แตะหน้าจอ เพื่อข้าม ▶', WIDTH/2, bubbleY + bh - 10);
       ctx.restore();
     }
 
