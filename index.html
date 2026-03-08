@@ -92,6 +92,33 @@
   </style>
 </head>
 <body>
+<!-- Android/iOS audio unlock: resume any suspended Audio on first touch -->
+<script>
+(function(){
+  var evs = ['touchstart','touchend','pointerdown','mousedown','click','keydown'];
+  function unlock() {
+    // Resume any suspended HTMLAudio or AudioContext
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (C) {
+        var actx = new C();
+        if (actx.state === 'suspended') actx.resume();
+        // play a silent buffer to unblock audio pipeline
+        var buf = actx.createBuffer(1,1,22050);
+        var src = actx.createBufferSource();
+        src.buffer = buf; src.connect(actx.destination); src.start(0);
+      }
+    } catch(e) {}
+    // Try to resume bgm if game already started
+    try {
+      if (window._bgmEl && window._bgmEl.paused) window._bgmEl.play().catch(function(){});
+    } catch(e) {}
+  }
+  evs.forEach(function(ev){
+    document.addEventListener(ev, unlock, {passive:true, capture:true});
+  });
+})();
+</script>
 
 <div id="wrapper">
   <canvas id="gameCanvas" width="390" height="720"></canvas>
@@ -161,7 +188,6 @@
     const imgDefs = [
       { key: 'player',       src: 'assets/images/player.png'        },
       { key: 'bgOutside',    src: 'assets/images/bg_outside.png'    },
-      { key: 'bgInside',     src: 'assets/images/bg_inside.png'     },
       { key: 'menuBurger',   src: 'assets/images/menu_burger.png'   },
       { key: 'menuChicken',  src: 'assets/images/menu_chicken.png'  },
       { key: 'menuFries',    src: 'assets/images/menu_fries.png'    },
@@ -170,25 +196,35 @@
       { key: 'stationCook',  src: 'assets/images/station_cook.png'  },
       { key: 'stationPlate', src: 'assets/images/station_plate.png' },
       { key: 'stationServe', src: 'assets/images/station_serve.png' },
+      // Interior background
+      { key: 'bgInside',    src: 'assets/images/bg_inside.png'     },
+      // Customer sprites
+      { key: 'custStudent', src: 'assets/images/cust_student.png'  },
+      { key: 'custOffice',  src: 'assets/images/cust_office.png'   },
+      { key: 'custElder',   src: 'assets/images/cust_elder.png'    },
+      { key: 'custCouple',  src: 'assets/images/cust_couple.png'   },
+      { key: 'custTourist', src: 'assets/images/cust_tourist.png'  },
+      { key: 'custVip',     src: 'assets/images/cust_vip.png'      },
     ];
 
-    // ── Sound assets ──────────────────────────────
-    const sndDefs = [
-      { key: 'bgm',    src: 'assets/sounds/bgm.mp3',    loop: true,  vol: 0.35 },
-      { key: 'coin',   src: 'assets/sounds/coin.wav',   loop: false, vol: 0.60 },
-      { key: 'serve',  src: 'assets/sounds/serve.wav',  loop: false, vol: 0.60 },
-      { key: 'anger',  src: 'assets/sounds/anger.wav',  loop: false, vol: 0.65 },
-      { key: 'cheer',  src: 'assets/sounds/cheer.wav',  loop: false, vol: 0.60 },
-    ];
-
+    // ── Sound assets ─────────────────────────────
+    // SFX are synthesized via Web Audio (no external files needed).
+    // BGM tries to load from file; falls back to silence gracefully.
     const images = {}, sounds = {};
-    let total  = imgDefs.length + sndDefs.length;
+
+    // Pre-build all SFX immediately (synth, no loading needed)
+    sounds.coin  = _makeCoin();
+    sounds.serve = _makeServe();
+    sounds.anger = _makeAnger();
+    sounds.cheer = _makeCheer();
+    sounds.error = _makeBeep(880, 0.12, 'square');
+
+    // Load BGM from file (optional)
+    let total  = imgDefs.length + 1;  // +1 for bgm
     let loaded = 0;
     const tryStart = () => {
       loaded++;
       if (loaded >= total) {
-        // Generate error beep via Web Audio (no file needed)
-        sounds.error = _makeBeep(880, 0.12, 'square');
         game.setImages(images);
         game.setSounds(sounds);
         game.start();
@@ -197,31 +233,128 @@
 
     imgDefs.forEach(def => {
       const img = new Image();
-      img.onload  = () => { images[def.key] = img;   tryStart(); };
-      img.onerror = () => { images[def.key] = null;  tryStart(); };
+      img.onload  = () => { images[def.key] = img;  tryStart(); };
+      img.onerror = () => { images[def.key] = null; tryStart(); };
       img.src = def.src;
     });
 
-    sndDefs.forEach(def => {
+    // BGM — load from file, fallback to null (game still works, just no music)
+    (function loadBGM() {
       const aud = new Audio();
       aud.preload = 'auto';
-      aud.volume  = def.vol || 0.55;
-      aud.loop    = def.loop || false;
+      aud.volume  = 0.35;
+      aud.loop    = true;
       let _done = false;
-      const done = (val) => { if (_done) return; _done = true; sounds[def.key] = val; tryStart(); };
+      const done = (val) => { if (_done) return; _done = true; sounds.bgm = val; tryStart(); };
       aud.addEventListener('canplaythrough', () => done(aud), { once: true });
       aud.addEventListener('error',          () => done(null), { once: true });
-      setTimeout(() => done(aud), 4000);
-      aud.src = def.src;
+      setTimeout(() => done(aud), 5000);
+      aud.src = 'assets/sounds/bgm.mp3';
+    })();
+  }
+
+  // ── Web Audio SFX synthesizer ──────────────────────────────────────
+  // Single shared AudioContext
+  let _actx = null;
+  function getACtx() {
+    if (!_actx) {
+      try { _actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+    }
+    return _actx;
+  }
+  // Resume context on first touch (Android unlock)
+  ['touchstart','pointerdown','click'].forEach(ev =>
+    document.addEventListener(ev, () => { try { getACtx()?.resume(); } catch(e){} }, { once: true, passive: true })
+  );
+
+  function _makeSfx(fn) {
+    // fn(ctx) — plays the sound using Web Audio API
+    const obj = {
+      play:      () => { try { const c=getACtx(); if(c){ if(c.state==='suspended') c.resume().then(()=>fn(c)); else fn(c); } return Promise.resolve(); } catch(e){ return Promise.resolve(); } },
+      cloneNode: () => ({ play: () => obj.play() }),
+      volume: 0.6,
+    };
+    return obj;
+  }
+
+  // ── coin: bright ping ─────────────────────────
+  function _makeCoin() {
+    return _makeSfx(ctx => {
+      const t = ctx.currentTime;
+      [880, 1108, 1320].forEach((f, i) => {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.connect(g); g.connect(ctx.destination);
+        osc.type = 'sine'; osc.frequency.value = f;
+        g.gain.setValueAtTime(0, t + i*0.04);
+        g.gain.linearRampToValueAtTime(0.22, t + i*0.04 + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, t + i*0.04 + 0.18);
+        osc.start(t + i*0.04); osc.stop(t + i*0.04 + 0.2);
+      });
     });
   }
 
-  // Generate Web Audio beep — returns object with .play() and .cloneNode()
+  // ── serve: cheerful two-tone pop ──────────────
+  function _makeServe() {
+    return _makeSfx(ctx => {
+      const t = ctx.currentTime;
+      [[523,0],[659,0.1],[784,0.2]].forEach(([f,d]) => {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.connect(g); g.connect(ctx.destination);
+        osc.type = 'triangle'; osc.frequency.value = f;
+        g.gain.setValueAtTime(0.25, t+d);
+        g.gain.exponentialRampToValueAtTime(0.001, t+d+0.15);
+        osc.start(t+d); osc.stop(t+d+0.18);
+      });
+    });
+  }
+
+  // ── anger: low buzz growl ─────────────────────
+  function _makeAnger() {
+    return _makeSfx(ctx => {
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(180, t);
+      osc.frequency.exponentialRampToValueAtTime(80, t+0.4);
+      g.gain.setValueAtTime(0.28, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t+0.45);
+      osc.start(t); osc.stop(t+0.5);
+    });
+  }
+
+  // ── cheer: ascending fanfare ──────────────────
+  function _makeCheer() {
+    return _makeSfx(ctx => {
+      const t = ctx.currentTime;
+      [523,659,784,1047].forEach((f,i) => {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.connect(g); g.connect(ctx.destination);
+        osc.type = 'triangle'; osc.frequency.value = f;
+        g.gain.setValueAtTime(0.2, t+i*0.08);
+        g.gain.exponentialRampToValueAtTime(0.001, t+i*0.08+0.2);
+        osc.start(t+i*0.08); osc.stop(t+i*0.08+0.25);
+      });
+    });
+  }
+
+  // ── error: descending buzz ────────────────────
   function _makeBeep(freq, duration, type) {
-    let _actx = null;
+    return _makeSfx(ctx => {
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = type || 'square'; osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.22, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t+duration);
+      osc.start(t); osc.stop(t+duration+0.02);
+    });
+  }
+  // (kept for compatibility — error beep uses _makeBeep)
+  function __unused(freq, duration, type) {
+    let _actx2 = null;
     function getCtx() {
-      if (!_actx) _actx = new (window.AudioContext || window.webkitAudioContext)();
-      return _actx;
+      if (!_actx2) _actx2 = new (window.AudioContext || window.webkitAudioContext)();
+      return _actx2;
     }
     function playBeep() {
       try {
