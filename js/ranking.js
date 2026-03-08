@@ -198,7 +198,7 @@ class RankingScreen {
     // Title
     ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 26px "Segoe UI Emoji"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🏆 สถิติสูงสุด 🏆', WIDTH/2, 96);
+    ctx.fillText('🏆 ยอดขายสูงสุด 🏆', WIDTH/2, 96);
 
     const list = this.ranking.length ? this.ranking : RankingSystem.load();
     const rowH = 48, startY = 118;
@@ -232,7 +232,7 @@ class RankingScreen {
 
     if (!list.length) {
       ctx.fillStyle = COL.PRIMARY; ctx.font='16px Arial'; ctx.textAlign='center';
-      ctx.fillText('ยังไม่มีสถิติ', WIDTH/2, 300);
+      ctx.fillText('ยังไม่มียอดขาย', WIDTH/2, 300);
     }
 
     // Play again
