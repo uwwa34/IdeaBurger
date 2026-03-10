@@ -81,6 +81,30 @@ class Kitchen {
     ctx.restore();
   }
 
+  // Blink a station green — signals "go here next"
+  blinkStation(ctx, stationId) {
+    const st = Object.values(STATIONS).find(s => s.id === stationId);
+    if (!st) return;
+    // Fast green blink: on ~400ms, off ~400ms
+    const blink = Math.sin(Date.now() / 200);
+    if (blink < 0) return;   // off phase — skip draw
+    const alpha = 0.5 + blink * 0.5;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = COL.GREEN;
+    ctx.beginPath(); ctx.roundRect(st.x - 3, st.y - 3, st.w + 6, st.h + 6, 10); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#388E3C';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(st.x - 3, st.y - 3, st.w + 6, st.h + 6, 10); ctx.stroke();
+    // Arrow indicator above
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px "Segoe UI Emoji"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('👇', st.x + st.w/2, st.y - 4);
+    ctx.restore();
+  }
+
   _drawDecor(ctx) {
     // Wall decorations
     const pics = [

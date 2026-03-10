@@ -81,7 +81,7 @@ class Customer {
     }
 
     if (this.state === 'waiting') {
-      this.patienceLeft--;
+      if (!window._lollipopActive) this.patienceLeft--;
 
       // star loss thresholds
       const frac = this.patienceLeft / this.patience;

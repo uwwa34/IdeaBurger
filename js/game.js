@@ -40,12 +40,16 @@ class Game {
 
     // ── Gameplay ─────────────────────────────────
     this.menuSelecting   = false;
-    this.menuSelectIdx   = 0;   // highlighted menu card index (joypad nav)
+    this.menuSelectIdx   = 0;
+    this.itemShopOpen    = false;
     this._menuCardBounds = null;
+    this._itemCardBounds = null;
+    this._tabBounds      = null;
     this.notifications   = [];
-    this.angerCount      = 0;   // cumulative total angry customers
+    this.angerCount      = 0;
     this.servedCount     = 0;
-    this.menuSales       = {};   // { menuId: { count, revenue } }
+    this.menuSales       = {};
+    this.serveQueue      = [];   // up to 2 completed dishes waiting at SERVE
 
     this._bindKeys();
     this._bindTap(canvas);
@@ -80,6 +84,11 @@ class Game {
     // Customer type sprites
     CUSTOMER_TYPES.forEach(ct => {
       if (ct.imgKey && images[ct.imgKey]) ct.img = images[ct.imgKey];
+    });
+
+    // Item images
+    Object.values(ITEMS).forEach(item => {
+      if (item.imgKey && images[item.imgKey]) item.img = images[item.imgKey];
     });
   }
 
@@ -203,6 +212,9 @@ class Game {
   // ─── PLAYING update ───────────────────────────
   _updatePlaying() {
     this.hud.update();
+    this.hud.updateItems();
+    // Sync global flags for item effects
+    window._lollipopActive = this.hud.hasItem('lollipop');
 
     if (!this.menuSelecting) {
       // Joypad L/R: one-shot snap per press, same as keyboard
@@ -218,6 +230,11 @@ class Game {
     }
 
     // Cook timer → step ready (or auto-complete last step)
+    // Milk: cook twice as fast — decrement timer extra once per frame
+    if (this.hud.hasItem('milk') && this.player.busy && this.player.cookTimer > 0) {
+      this.player.cookTimer--;
+    }
+
     if (this.player.busy && this.player.cookTimer <= 0 && !this.player._stepReady) {
       const nextStepIdx = this.player.cookStep + 1;
       const isLastStep  = nextStepIdx >= (this.player.activeMenu?.steps.length || 0);
@@ -242,9 +259,10 @@ class Game {
 
     // Menu joypad navigation
     if (this.menuSelecting) {
-      const menuItems = Object.values(MENU);
-      if (this.joypad.consumeLeft())  this.menuSelectIdx = (this.menuSelectIdx - 1 + menuItems.length) % menuItems.length;
-      if (this.joypad.consumeRight()) this.menuSelectIdx = (this.menuSelectIdx + 1) % menuItems.length;
+      const foodCount = this.player.activeMenu ? 0 : Object.keys(MENU).length;
+      const totalCards = foodCount + Object.keys(ITEMS).length;
+      if (this.joypad.consumeLeft())  this.menuSelectIdx = Math.max(0, this.menuSelectIdx - 1);
+      if (this.joypad.consumeRight()) this.menuSelectIdx = Math.min(totalCards - 1, this.menuSelectIdx + 1);
     }
 
     // ACT / BOMB
@@ -253,11 +271,29 @@ class Game {
 
     // Customers
     this.custMgr.update(true);
+
+    // Auto-serve: match queued dishes to newly-waiting customers
+    for (let qi = this.serveQueue.length - 1; qi >= 0; qi--) {
+      const queued = this.serveQueue[qi];
+      const cust = this.custMgr.findWaiting(queued.menuId);
+      if (cust) {
+        const money = cust.serve();
+        this.hud.addMoney(money);
+        this.servedCount++;
+        const sid = queued.menuId;
+        if (!this.menuSales[sid]) this.menuSales[sid] = { count: 0, revenue: 0 };
+        this.menuSales[sid].count++;
+        this.menuSales[sid].revenue += money;
+        this._addNotification(`🔔 ${queued.emoji} เสิร์ฟอัตโนมัติ +฿${money}!`, COL.GOLD);
+        this._playSound('coin');
+        this.serveQueue.splice(qi, 1);
+      }
+    }
+
     // Detect newly-gone-angry customers (edge: state just became 'angry' or gone with stars=0)
     const nowAngry = this.custMgr.countNewAngry();
     if (nowAngry > 0) {
       this.angerCount += nowAngry;
-      this.hud.updateStarRating(this.angerCount);
       this._addNotification('😤 ลูกค้าโกรธ!', COL.RED);
       this._playSound('anger');
     }
@@ -271,6 +307,7 @@ class Game {
   _handleCancel() {
     if (this.menuSelecting) {
       this.menuSelecting = false;
+      this.itemShopOpen  = false;
       this._addNotification('ยกเลิก', '#aaa');
       return;
     }
@@ -285,12 +322,32 @@ class Game {
   _handleAct() {
     // ── While menu is open: confirm selection ────
     if (this.menuSelecting) {
-      const items = Object.values(MENU);
-      this._startCooking(items[this.menuSelectIdx]?.id);
+      const foodList = Object.values(MENU).slice(0, 4);
+      const itemList = Object.values(ITEMS);
+      // If cooking or holding: only items are selectable
+      if (this.player.activeMenu || this.player.holding) {
+        const item = itemList[this.menuSelectIdx];
+        if (item) this._buyItem(item.id);
+      } else {
+        // Idle: food first, then items
+        if (this.menuSelectIdx < foodList.length) {
+          this._startCooking(foodList[this.menuSelectIdx].id);
+        } else {
+          const item = itemList[this.menuSelectIdx - foodList.length];
+          if (item) this._buyItem(item.id);
+        }
+      }
       return;
     }
 
     const st = this.player.atStation;
+
+    // ── Holding food but at PREP → allow item shop ─
+    if (this.player.holding && st === 'prep') {
+      this.menuSelecting = true;
+      this.menuSelectIdx = Object.keys(MENU).length; // start cursor on item section
+      return;
+    }
 
     // ── Holding food → try serve ─────────────────
     if (this.player.holding) {
@@ -308,14 +365,28 @@ class Game {
           this._addNotification(`🎉 +฿${money}!`, COL.GOLD);
           this._playSound('coin');
           this.player.clearFood();
+        } else if (this.serveQueue.length < 2) {
+          // No waiting customer — put food in serve queue (max 2)
+          const m = MENU[this.player.holding];
+          this.serveQueue.push({ menuId: m.id, emoji: m.emoji, img: m.img });
+          this._addNotification(`📥 วาง ${m.emoji} ไว้รอ (${this.serveQueue.length}/2)`, COL.MINT);
+          this._playSound('serve');
+          this.player.clearFood();
         } else {
-          this._addNotification('ไม่มีลูกค้าสั่งเมนูนี้!', COL.RED);
+          this._addNotification('คิวเต็มแล้ว! (2/2)', COL.RED);
           this._playSound('error');
         }
       } else {
         this._addNotification('ไปที่ 🛎️ เสิร์ฟ!', COL.PRIMARY);
         this._playSound('error');
       }
+      return;
+    }
+
+    // ── Has active recipe: allow buying items at PREP ──
+    if (this.player.activeMenu && st === 'prep') {
+      this.menuSelecting = true;
+      this.menuSelectIdx = 0;
       return;
     }
 
@@ -354,13 +425,12 @@ class Game {
       return;
     }
 
-    // ── Idle: open menu only at PREP ─────────────
+    // ── Idle: open overlay at PREP ───────────────
     if (st === 'prep') {
-      this.menuSelecting  = true;
-      this.menuSelectIdx  = 0;
-      this._menuNavCD     = 0;
+      this.menuSelecting = true;
+      this.menuSelectIdx = 0;
     } else if (st) {
-      this._addNotification('ไปที่ เตรียมของ เพื่อเลือกเมนู', COL.PRIMARY);
+      this._addNotification('ไปที่ 🔪 เตรียมของ เพื่อเลือกเมนู/ไอเทม', COL.PRIMARY);
       this._playSound('error');
     } else {
       this._addNotification('เดินไปที่สถานีก่อน!', '#aaa');
@@ -368,6 +438,23 @@ class Game {
   }
 
   // ─── Start cooking ────────────────────────────
+  // ─── Buy item ────────────────────────────────
+  _buyItem(itemId) {
+    const item = ITEMS[itemId];
+    if (!item) return;
+    if (this.hud.money < item.price) {
+      this._addNotification('เงินไม่พอ! 💸', COL.RED);
+      this._playSound('error');
+      return;
+    }
+    this.hud.money -= item.price;
+    this.hud.activateItem(itemId);
+    this.menuSelecting = false;
+    this.itemShopOpen  = false;
+    this._addNotification(`${item.emoji} ใช้ ${item.name} แล้ว!`, COL.MINT);
+    this._playSound('cheer');
+  }
+
   _startCooking(menuId) {
     const menu = MENU[menuId];
     if (!menu) return;
@@ -514,7 +601,7 @@ class Game {
       lines.forEach((line, i) => ctx.fillText(line, WIDTH/2, lineStartY + i * 28));
 
       ctx.fillStyle = COL.PRIMARY; ctx.font = '11px Arial';
-      ctx.fillText('แตะหน้าจอ เพื่อข้าม ▶', WIDTH/2, bubbleY + bh - 10);
+      ctx.fillText('แตะหรือกด A เพื่อข้าม ▶', WIDTH/2, bubbleY + bh - 10);
       ctx.restore();
     }
 
@@ -532,6 +619,12 @@ class Game {
     this.custMgr.draw(ctx);
 
     if (this.player.atStation) this.kitchen.highlightStation(ctx, this.player.atStation);
+    // Blink next required station when step is ready
+    if (this.player._stepReady && this.player.activeMenu) {
+      const nextIdx = this.player.cookStep + 1;
+      const nextId  = this.player.activeMenu.steps[nextIdx];
+      if (nextId) this.kitchen.blinkStation(ctx, nextId);
+    }
 
     this.player.draw(ctx, true);
 
@@ -541,6 +634,7 @@ class Game {
     // Menu overlay (covers kitchen zone only)
     if (this.menuSelecting) this._drawMenuSelect(ctx);
 
+    this._drawServeQueue(ctx);
     this.hud.drawHUD(ctx);
     this.joypad.draw(ctx);
     this._drawNotifications(ctx);
@@ -603,7 +697,7 @@ class Game {
         { label:'💰 รายได้รวม',    val:'฿' + this.hud.money.toLocaleString() },
         { label:'🍳 เสิร์ฟสำเร็จ', val: this.servedCount + ' จาน' },
         { label:'😤 ลูกค้าโกรธ',   val: this.angerCount  + ' คน' },
-        { label:'⭐ ระดับร้าน',     val:'⭐'.repeat(Math.max(0,this.hud.starRating))||'☆☆☆' },
+
       ];
       summaryItems.forEach((row, i) => {
         const delay = 40 + i*18;
@@ -678,67 +772,155 @@ class Game {
     }
   }
 
-  // ─── Menu Select overlay ──────────────────────
-  // 2×2 grid over kitchen area. Joypad L/R navigates, A confirms, B cancels.
+  // ─── Menu Select overlay ─────────────────────
+  // Layout (idle):    food 2×2 rows top, items 2×1 row bottom, divider line
+  // Layout (cooking): items 2×1 centered only
+  // Joypad ◀▶: no wrap. A = confirm. B = cancel.
   _drawMenuSelect(ctx) {
-    ctx.fillStyle = 'rgba(252,228,236,0.95)';
+    ctx.fillStyle = 'rgba(252,228,236,0.96)';
     ctx.fillRect(0, HUD_H, WIDTH, GAME_H);
 
-    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 16px "Segoe UI Emoji"';
+    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 14px "Segoe UI Emoji"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('🍽️ เลือกเมนู', WIDTH/2, HUD_H + 10);
-    ctx.fillStyle = COL.TEXT_MAIN; ctx.font = '11px Arial';
-    ctx.fillText('◀ ▶ เลือก  |  A ยืนยัน  |  B ยกเลิก', WIDTH/2, HUD_H + 30);
+    const _overlayTitle = (this.player.activeMenu || this.player.holding) ? '🛍️ ซื้อไอเทม' : '🍽️ เมนู + 🛍️ ไอเทม';
+    ctx.fillText(_overlayTitle, WIDTH/2, HUD_H + 8);
+    ctx.fillStyle = COL.PRIMARY; ctx.font = '10px Arial';
+    ctx.fillText('◀▶ เลือก   A ยืนยัน   B ยกเลิก', WIDTH/2, HUD_H + 26);
 
-    const items = Object.values(MENU);
-    const cols = 2, itemW = 132, itemH = 132, gap = 10;
-    const totalW = cols * itemW + (cols-1) * gap;
-    const startX = (WIDTH - totalW) / 2;
-    const startY = HUD_H + 52;
+    const contentY = HUD_H + 46;
 
-    // Recompute bounds each frame for tap detection
-    this._menuCardBounds = items.slice(0,4).map((menu,i) => ({
-      id: menu.id,
-      x: startX + (i%cols)*(itemW+gap),
-      y: startY + Math.floor(i/cols)*(itemH+gap),
-      w: itemW, h: itemH,
-    }));
+    const menuItems = Object.values(MENU).slice(0, 4);
+    const itemList  = Object.values(ITEMS);
+    const showFood  = !this.player.activeMenu && !this.player.holding;
 
-    items.slice(0,4).forEach((menu, i) => {
-      const cb   = this._menuCardBounds[i];
-      const sel  = (i === this.menuSelectIdx);
+    // Card sizes
+    const fCols = 2, fW = 142, fH = 115, fGap = 10;
+    const fStartX = (WIDTH - (fCols * fW + (fCols-1) * fGap)) / 2;
 
-      // Card background
-      ctx.fillStyle = sel ? 'rgba(244,143,177,0.35)' : 'rgba(255,255,255,0.90)';
-      ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 14); ctx.fill();
-      ctx.strokeStyle = sel ? COL.PRIMARY_D : COL.PRIMARY;
-      ctx.lineWidth   = sel ? 3 : 1.5; ctx.stroke();
+    const iCols = 2, iW = 142, iH = 90, iGap = 10;
+    const iStartX = (WIDTH - (iCols * iW + (iCols-1) * iGap)) / 2;
 
-      // Selection glow
+    const iSectionY = contentY + (showFood ? (fH * 2 + fGap + 14) : 0);
+
+    this._menuCardBounds = [];
+    this._itemCardBounds = [];
+
+    // ── Food section (idle only) ─────────────────
+    if (showFood) {
+      menuItems.forEach((menu, i) => {
+        const col = i % fCols, row = Math.floor(i / fCols);
+        const x = fStartX + col * (fW + fGap);
+        const y = contentY + row * (fH + fGap);
+        const sel = (i === this.menuSelectIdx);
+
+        ctx.fillStyle = sel ? 'rgba(244,143,177,0.38)' : 'rgba(255,255,255,0.92)';
+        ctx.beginPath(); ctx.roundRect(x, y, fW, fH, 12); ctx.fill();
+        ctx.strokeStyle = sel ? COL.PRIMARY_D : COL.PRIMARY;
+        ctx.lineWidth = sel ? 3 : 1.5; ctx.stroke();
+        if (sel) {
+          ctx.save(); ctx.globalAlpha = 0.3 + Math.abs(Math.sin(Date.now()/300))*0.4;
+          ctx.shadowColor = COL.PRIMARY_D; ctx.shadowBlur = 14;
+          ctx.strokeStyle = COL.PRIMARY_D; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.roundRect(x, y, fW, fH, 12); ctx.stroke(); ctx.restore();
+        }
+        if (menu.img && menu.img.complete && menu.img.naturalWidth > 0) {
+          ctx.drawImage(menu.img, x+12, y+6, fW-24, fH-32);
+        } else {
+          ctx.font='46px "Segoe UI Emoji"'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(menu.emoji, x+fW/2, y+fH/2 - 10);
+        }
+        ctx.fillStyle = sel ? COL.PRIMARY_D : COL.TEXT_MAIN;
+        ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText('฿'+menu.price, x+fW/2, y+fH-3);
+        this._menuCardBounds.push({ id: menu.id, x, y, w: fW, h: fH });
+      });
+
+      // Divider + label
+      const divY = iSectionY - 8;
+      ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 1; ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.moveTo(20, divY); ctx.lineTo(WIDTH-20, divY); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 10px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('── ไอเทม ──', WIDTH/2, divY);
+    }
+
+    // ── Item section ─────────────────────────────
+    itemList.forEach((item, i) => {
+      const col = i % iCols;
+      const x = iStartX + col * (iW + iGap);
+      const y = iSectionY + (this.player.activeMenu ? Math.floor(i/iCols)*(iH+iGap) : 0);
+      const globalIdx = (showFood ? menuItems.length : 0) + i;
+      const sel = (globalIdx === this.menuSelectIdx);
+      const canAfford = this.hud.money >= item.price;
+
+      ctx.fillStyle = sel ? 'rgba(244,143,177,0.38)' : (canAfford ? 'rgba(255,255,255,0.95)' : 'rgba(220,220,220,0.7)');
+      ctx.beginPath(); ctx.roundRect(x, y, iW, iH, 10); ctx.fill();
+      ctx.strokeStyle = sel ? COL.PRIMARY_D : (canAfford ? COL.PRIMARY : '#ccc');
+      ctx.lineWidth = sel ? 3 : 1.5; ctx.stroke();
       if (sel) {
-        const pulse = 0.3 + Math.abs(Math.sin(Date.now()/300))*0.4;
-        ctx.save(); ctx.globalAlpha = pulse;
-        ctx.shadowColor = COL.PRIMARY_D; ctx.shadowBlur = 18;
+        ctx.save(); ctx.globalAlpha = 0.3 + Math.abs(Math.sin(Date.now()/300))*0.4;
+        ctx.shadowColor = COL.PRIMARY_D; ctx.shadowBlur = 14;
         ctx.strokeStyle = COL.PRIMARY_D; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 14); ctx.stroke();
-        ctx.restore();
+        ctx.beginPath(); ctx.roundRect(x, y, iW, iH, 10); ctx.stroke(); ctx.restore();
       }
-
-      // Food emoji or image
-      if (menu.img && menu.img.complete && menu.img.naturalWidth > 0) {
-        ctx.drawImage(menu.img, cb.x+16, cb.y+8, cb.w-32, cb.h-36);
+      // icon (left half)
+      const iconSz = iH - 14;
+      if (item.img && item.img.complete && item.img.naturalWidth > 0) {
+        ctx.drawImage(item.img, x+6, y+7, iconSz, iconSz);
       } else {
-        ctx.font = '58px "Segoe UI Emoji"';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(menu.emoji, cb.x + cb.w/2, cb.y + cb.h/2 - 12);
+        ctx.font = Math.floor(iconSz*0.72)+'px "Segoe UI Emoji"';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(item.emoji, x+6+iconSz/2, y+iH/2);
       }
-
-      // Price
-      ctx.fillStyle = sel ? COL.PRIMARY_D : COL.TEXT_MAIN;
-      ctx.font = `bold 13px Arial`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText(`฿${menu.price}`, cb.x + cb.w/2, cb.y + cb.h - 4);
+      // text (right half)
+      const tx = x + iconSz + 12;
+      ctx.fillStyle = COL.TEXT_MAIN; ctx.font = 'bold 11px Arial';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(item.name, tx, y+8);
+      ctx.fillStyle = '#888'; ctx.font = '9px Arial';
+      // word-wrap description
+      const words = item.description.split(' '); let line = '', ly = y+22;
+      for (const w of words) {
+        if ((line+w).length > 12) { ctx.fillText(line.trim(), tx, ly); line = w+' '; ly += 11; }
+        else line += w+' ';
+      }
+      ctx.fillText(line.trim(), tx, ly);
+      ctx.fillStyle = canAfford ? COL.PRIMARY_D : '#bbb';
+      ctx.font = 'bold 12px Arial'; ctx.textBaseline = 'bottom';
+      ctx.fillText('฿'+item.price, tx, y+iH-3);
+      if (this.hud.hasItem(item.id)) {
+        ctx.fillStyle = COL.GREEN; ctx.font = 'bold 9px Arial';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillText('✓ ใช้อยู่', x+iW-6, y+iH-3);
+      }
+      this._itemCardBounds.push({ id: item.id, x, y, w: iW, h: iH });
     });
+  }
+
+
+  // ─── Serve queue display (at SERVE station) ───
+  _drawServeQueue(ctx) {
+    if (this.serveQueue.length === 0) return;
+    const st = Object.values(STATIONS).find(s => s.id === 'serve');
+    const cx = st.x + st.w / 2;
+    const qy = st.y - 10;
+    this.serveQueue.forEach((q, i) => {
+      const ix = cx - 20 + i * 36;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.roundRect(ix - 14, qy - 28, 28, 28, 6); ctx.fill();
+      ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 1.5; ctx.stroke();
+      if (q.img && q.img.complete && q.img.naturalWidth > 0) {
+        ctx.drawImage(q.img, ix - 12, qy - 26, 24, 24);
+      } else {
+        ctx.font = '18px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(q.emoji, ix, qy - 14);
+      }
+    });
+    // slot indicator
+    ctx.fillStyle = COL.PRIMARY_D; ctx.font = 'bold 9px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`${this.serveQueue.length}/2`, cx, qy - 2);
   }
 
   // ─── Recipe guide in joypad area ──────────────
@@ -834,7 +1016,9 @@ class Game {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') {
           e.preventDefault();
           if (this.menuSelecting) {
-            this.menuSelectIdx = (this.menuSelectIdx - 1 + Object.keys(MENU).length) % Object.keys(MENU).length;
+            const _fc3 = (this.player.activeMenu || this.player.holding) ? 0 : Object.keys(MENU).length;
+            const _tc3 = _fc3 + Object.keys(ITEMS).length;
+            this.menuSelectIdx = Math.max(0, this.menuSelectIdx - 1);
           } else {
             this._keyboardMove(-1);
           }
@@ -842,7 +1026,9 @@ class Game {
         if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
           e.preventDefault();
           if (this.menuSelecting) {
-            this.menuSelectIdx = (this.menuSelectIdx + 1) % Object.keys(MENU).length;
+            const _fc4 = (this.player.activeMenu || this.player.holding) ? 0 : Object.keys(MENU).length;
+            const _tc4 = _fc4 + Object.keys(ITEMS).length;
+            this.menuSelectIdx = Math.min(_tc4 - 1, this.menuSelectIdx + 1);
           } else {
             this._keyboardMove(1);
           }
@@ -869,12 +1055,21 @@ class Game {
         this.introTimer = 999; return;
       }
 
-      // Menu card tap (kitchen zone only)
+      // Menu/item overlay tap (kitchen zone only)
       if (this.state === STATE.PLAYING && this.menuSelecting && y < HEIGHT - PAD_H) {
+        // Food cards
         if (this._menuCardBounds) {
           for (const card of this._menuCardBounds) {
             if (x >= card.x && x <= card.x+card.w && y >= card.y && y <= card.y+card.h) {
               this._startCooking(card.id); return;
+            }
+          }
+        }
+        // Item cards
+        if (this._itemCardBounds) {
+          for (const card of this._itemCardBounds) {
+            if (x >= card.x && x <= card.x+card.w && y >= card.y && y <= card.y+card.h) {
+              this._buyItem(card.id); return;
             }
           }
         }
@@ -932,8 +1127,11 @@ class Game {
     this.endPhase = 0; this.endTimer = 0;
     this.scoreTimer = 0; this.scoreReady = false;
     this.angerCount = 0; this.servedCount = 0; this.menuSales = {};
-    this.menuSelecting = false; this.menuSelectIdx = 0;
-    this._menuCardBounds = null; this.notifications = [];
+    this.menuSelecting = false; this.menuSelectIdx = 0; this.itemShopOpen = false;
+    this._menuCardBounds = null; this._itemCardBounds = null; this._tabBounds = null;
+    this.notifications = [];
+    this.serveQueue = [];
+    window._lollipopActive = false;
 
     this.player = new Player(this.images.player || null);
     this.player.x = -this.player.w - 20;

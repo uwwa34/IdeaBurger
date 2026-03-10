@@ -7,9 +7,10 @@ class HUD {
   constructor() {
     this.money       = 0;
     this.shopTimer   = SHOP_OPEN_DURATION;
-    this.starRating  = 3;
     this.moneyFlash  = 0;
     this._coins      = [];
+    // Active item effects
+    this.activeItems = [];  // [{id, timer, duration, emoji, name}]
   }
 
   addMoney(amount) {
@@ -64,11 +65,8 @@ class HUD {
     ctx.fillStyle = frac>0.4?COL.GREEN:frac>0.2?COL.GOLD:'#EF5350';
     ctx.fillRect(0,HUD_H-6,WIDTH*frac,6);
 
-    // Stars
-    for (let i=0;i<3;i++) {
-      ctx.font='14px "Segoe UI Emoji"'; ctx.textAlign='center';
-      ctx.fillText(i<this.starRating?'⭐':'☆', WIDTH/2-14+i*14, 30);
-    }
+    // Active item indicators (center HUD)
+    this._drawActiveItems(ctx);
 
     // Coin particles
     this._coins.forEach(p => {
@@ -78,10 +76,40 @@ class HUD {
     });
   }
 
-  isShopClosed() { return this.shopTimer<=0; }
-  updateStarRating(n) {
-    this.starRating = n>=6?0:n>=4?1:n>=2?2:3;
+  _drawActiveItems(ctx) {
+    if (this.activeItems.length === 0) return;
+    const cx = WIDTH / 2;
+    this.activeItems.forEach((item, i) => {
+      const frac = item.timer / item.duration;
+      const x = cx - (this.activeItems.length * 28) / 2 + i * 28 + 6;
+      // icon
+      ctx.font = '16px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(item.emoji, x, 18);
+      // tiny timer bar below icon
+      ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(x-10, 27, 20, 4);
+      ctx.fillStyle = frac > 0.4 ? COL.GREEN : COL.GOLD;
+      ctx.fillRect(x-10, 27, 20 * frac, 4);
+    });
   }
+
+  activateItem(itemId) {
+    const def = ITEMS[itemId];
+    if (!def) return;
+    // refresh if already active
+    const existing = this.activeItems.find(a => a.id === itemId);
+    if (existing) { existing.timer = def.duration; return; }
+    this.activeItems.push({ id: itemId, timer: def.duration, duration: def.duration, emoji: def.emoji, name: def.name });
+  }
+
+  updateItems() {
+    this.activeItems = this.activeItems.filter(a => { a.timer--; return a.timer > 0; });
+  }
+
+  hasItem(itemId) {
+    return this.activeItems.some(a => a.id === itemId);
+  }
+
+  isShopClosed() { return this.shopTimer<=0; }
 }
 
 // ════════════════════════════════════════════════════
