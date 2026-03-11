@@ -117,15 +117,15 @@ const ITEMS = {
     id: 'lollipop', name: 'อมยิ้ม', emoji: '🍭',
     img: null, imgKey: 'itemLollipop',
     price: 40,
-    duration: 20 * 60,   // 15 sec freeze customer timers
-    description: 'หยุดเวลารอลูกค้า 20 วิ',
+    duration: 30 * 60,   // 30 sec freeze customer timers
+    description: 'เวลาลูกค้าหยุด 30 วิ',
   },
   milk: {
     id: 'milk', name: 'นมกล่อง', emoji: '🥛',
     img: null, imgKey: 'itemMilk',
     price: 50,
-    duration: 30 * 60,   // 20 sec half cook times
-    description: 'ทำอาหารเร็วขึ้น เป็นเวลา 30 วิ',
+    duration: 30 * 60,   // 30 sec half cook times
+    description: 'ทำอาหารเร็ว2เท่า 30 วิ',
   },
 };
 const STAR_THRESHOLDS = [0.4, 0.65, 0.85];
