@@ -50,6 +50,7 @@ class Game {
     this.servedCount     = 0;
     this.menuSales       = {};
     this.serveQueue      = [];   // up to 2 completed dishes waiting at SERVE
+    this._ambientParts   = [];   // ambient floating particles for active items
 
     this._bindKeys();
     this._bindTap(canvas);
@@ -269,6 +270,28 @@ class Game {
     if (this.joypad.consumeAct())  this._handleAct();
     if (this.joypad.consumeBomb()) this._handleCancel();
 
+    // Ambient item particles
+    if (this.hud.hasItem('lollipop') && Math.random() < 0.4) {
+      this._ambientParts.push({
+        x: Math.random() * WIDTH, y: HEIGHT - PAD_H,
+        vx: (Math.random()-0.5)*1.2, vy: -1.5 - Math.random()*1.5,
+        life: 80, maxLife: 80, col: '#FF80AB', r: 4 + Math.random()*4, spin: Math.random()*6,
+        emoji: Math.random() < 0.3 ? '🍭' : null,
+      });
+    }
+    if (this.hud.hasItem('milk') && Math.random() < 0.35) {
+      this._ambientParts.push({
+        x: this.player.x + this.player.w/2 + (Math.random()-0.5)*30,
+        y: this.player.y,
+        vx: (Math.random()-0.5)*2, vy: -2 - Math.random()*2,
+        life: 50, maxLife: 50, col: '#B3E5FC', r: 3 + Math.random()*3, spin: 0,
+        emoji: Math.random() < 0.25 ? '⚡' : null,
+      });
+    }
+    this._ambientParts = this._ambientParts.filter(p => {
+      p.x += p.vx; p.y += p.vy; p.vy -= 0.02; p.life--; return p.life > 0;
+    });
+
     // Customers
     this.custMgr.update(true);
 
@@ -451,7 +474,9 @@ class Game {
     this.hud.activateItem(itemId);
     this.menuSelecting = false;
     this.itemShopOpen  = false;
-    this._addNotification(`${item.emoji} ใช้ ${item.name} แล้ว!`, COL.MINT);
+    // Big flash notification
+    this._addNotification(`✨ ${item.emoji} ${item.name.toUpperCase()} ACTIVATED! ✨`, COL.GOLD, true);
+    this._addNotification(item.description, item.id === 'lollipop' ? '#FF80AB' : '#81D4FA');
     this._playSound('cheer');
   }
 
@@ -616,6 +641,44 @@ class Game {
   // ─── Draw PLAYING ─────────────────────────────
   _drawPlaying(ctx) {
     this.kitchen.drawInside(ctx);
+
+    // ── Lollipop screen tint: soft pink freeze overlay ──────────
+    if (this.hud.hasItem('lollipop')) {
+      const pulse = 0.04 + Math.abs(Math.sin(Date.now()/800)) * 0.04;
+      ctx.save(); ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#FF80AB';
+      ctx.fillRect(0, HUD_H, WIDTH, GAME_H);
+      ctx.restore();
+      // Snowflake-style ❄ icons drifting down (frozen time)
+      // drawn via ambient particles below
+    }
+
+    // ── Milk speed-lines overlay ─────────────────────────────────
+    if (this.hud.hasItem('milk')) {
+      const t = Date.now();
+      ctx.save(); ctx.globalAlpha = 0.12 + Math.abs(Math.sin(t/200)) * 0.08;
+      ctx.strokeStyle = '#81D4FA'; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 6; i++) {
+        const lx = ((t/4 + i*65) % (WIDTH + 60)) - 30;
+        ctx.beginPath(); ctx.moveTo(lx, HUD_H); ctx.lineTo(lx - 40, HEIGHT - PAD_H); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ── Ambient item particles (drawn over kitchen, under UI) ────
+    this._ambientParts.forEach(p => {
+      const a = p.life / p.maxLife;
+      ctx.save(); ctx.globalAlpha = a * 0.85;
+      if (p.emoji) {
+        ctx.font = '14px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(p.emoji, p.x, p.y);
+      } else {
+        ctx.fillStyle = p.col;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * a, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+    });
+
     this.custMgr.draw(ctx);
 
     if (this.player.atStation) this.kitchen.highlightStation(ctx, this.player.atStation);
@@ -632,9 +695,10 @@ class Game {
     if (this.player.activeMenu && !this.menuSelecting) this._drawRecipeGuide(ctx);
 
     // Menu overlay (covers kitchen zone only)
+    this._drawServeQueue(ctx);
+
     if (this.menuSelecting) this._drawMenuSelect(ctx);
 
-    this._drawServeQueue(ctx);
     this.hud.drawHUD(ctx);
     this.joypad.draw(ctx);
     this._drawNotifications(ctx);
@@ -965,22 +1029,43 @@ class Game {
   // ─── Notifications ─────────────────────────────
   _drawNotifications(ctx) {
     this.notifications.forEach(n => {
-      const alpha = Math.min(1, n.timer/20);
+      const alpha = Math.min(1, n.timer / 20);
       ctx.save(); ctx.globalAlpha = alpha;
-      ctx.fillStyle = 'rgba(252,228,236,0.92)';
-      ctx.beginPath(); ctx.roundRect(WIDTH/2-135, n.y-14, 270, 29, 9); ctx.fill();
-      ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = n.color || COL.TEXT_MAIN;
-      ctx.font = 'bold 12px "Segoe UI Emoji"';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(n.text, WIDTH/2, n.y);
+      if (n.big) {
+        // ── Big activate banner ───────────────────
+        const bw = 310, bh = 38;
+        const bx = WIDTH/2 - bw/2, by = n.y - bh/2;
+        // glow
+        ctx.shadowColor = n.color; ctx.shadowBlur = 18;
+        ctx.fillStyle = '#1a0a2e';
+        ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 12); ctx.fill();
+        ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.stroke();
+        ctx.shadowBlur = 0;
+        // shimmer
+        const shimX = bx + ((Date.now()/6) % (bw+40)) - 20;
+        ctx.save(); ctx.globalAlpha *= 0.25; ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.roundRect(Math.max(bx,shimX), by+2, 24, bh-4, 6); ctx.fill(); ctx.restore();
+        ctx.fillStyle = n.color;
+        ctx.font = 'bold 14px "Segoe UI Emoji"';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(n.text, WIDTH/2, n.y);
+      } else {
+        // ── Normal notification ───────────────────
+        ctx.fillStyle = 'rgba(252,228,236,0.92)';
+        ctx.beginPath(); ctx.roundRect(WIDTH/2-135, n.y-14, 270, 29, 9); ctx.fill();
+        ctx.strokeStyle = COL.PRIMARY; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = n.color || COL.TEXT_MAIN;
+        ctx.font = 'bold 12px "Segoe UI Emoji"';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(n.text, WIDTH/2, n.y);
+      }
       ctx.restore();
     });
   }
 
-  _addNotification(text, color = COL.TEXT_MAIN) {
-    this.notifications.forEach(n => n.y -= 32);
-    this.notifications.push({ text, color, timer: 100, y: HEIGHT - PAD_H - 22 });
+  _addNotification(text, color = COL.TEXT_MAIN, big = false) {
+    this.notifications.forEach(n => n.y -= (big ? 44 : 32));
+    this.notifications.push({ text, color, timer: big ? 130 : 100, y: HEIGHT - PAD_H - 22, big });
     if (this.notifications.length > 4) this.notifications.shift();
   }
 
@@ -1130,7 +1215,8 @@ class Game {
     this.menuSelecting = false; this.menuSelectIdx = 0; this.itemShopOpen = false;
     this._menuCardBounds = null; this._itemCardBounds = null; this._tabBounds = null;
     this.notifications = [];
-    this.serveQueue = [];
+    this.serveQueue    = [];
+    this._ambientParts = [];
     window._lollipopActive = false;
 
     this.player = new Player(this.images.player || null);

@@ -9,8 +9,8 @@ class HUD {
     this.shopTimer   = SHOP_OPEN_DURATION;
     this.moneyFlash  = 0;
     this._coins      = [];
-    // Active item effects
-    this.activeItems = [];  // [{id, timer, duration, emoji, name}]
+    this.activeItems = [];
+    this._particles  = [];   // burst particles for item activate
   }
 
   addMoney(amount) {
@@ -68,6 +68,20 @@ class HUD {
     // Active item indicators (center HUD)
     this._drawActiveItems(ctx);
 
+    // Item burst particles
+    this._particles.forEach(p => {
+      const a = p.life / p.maxLife;
+      ctx.save(); ctx.globalAlpha = a;
+      if (p.isEmoji) {
+        ctx.font = '14px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(p.emoji, p.x, p.y);
+      } else {
+        ctx.fillStyle = p.col;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * a, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    });
+
     // Coin particles
     this._coins.forEach(p => {
       ctx.save(); ctx.globalAlpha=p.life/40;
@@ -78,31 +92,116 @@ class HUD {
 
   _drawActiveItems(ctx) {
     if (this.activeItems.length === 0) return;
-    const cx = WIDTH / 2;
+    const t   = Date.now();
+    const cx  = WIDTH / 2;
+    const BAR_W = 72, BAR_H = 10, CARD_W = 88, CARD_H = HUD_H - 6;
+    const totalW = this.activeItems.length * CARD_W + (this.activeItems.length - 1) * 6;
+    const startX = cx - totalW / 2;
+
     this.activeItems.forEach((item, i) => {
-      const frac = item.timer / item.duration;
-      const x = cx - (this.activeItems.length * 28) / 2 + i * 28 + 6;
-      // icon
-      ctx.font = '16px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(item.emoji, x, 18);
-      // tiny timer bar below icon
-      ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(x-10, 27, 20, 4);
-      ctx.fillStyle = frac > 0.4 ? COL.GREEN : COL.GOLD;
-      ctx.fillRect(x-10, 27, 20 * frac, 4);
+      const frac  = item.timer / item.duration;
+      const x     = startX + i * (CARD_W + 6);
+      const pulse = 0.7 + Math.sin(t / 350 + i) * 0.3;
+      const urgnt = frac < 0.25;
+
+      // ── Card bg ──────────────────────────────────
+      ctx.save();
+      ctx.shadowColor = item.id === 'lollipop' ? '#FF80AB' : '#81D4FA';
+      ctx.shadowBlur  = 10 * pulse;
+      ctx.fillStyle   = item.id === 'lollipop'
+        ? `rgba(255,128,171,${0.18 + pulse * 0.12})`
+        : `rgba(129,212,250,${0.18 + pulse * 0.12})`;
+      ctx.beginPath(); ctx.roundRect(x, 2, CARD_W, CARD_H, 8); ctx.fill();
+      ctx.strokeStyle = item.id === 'lollipop'
+        ? `rgba(255,64,129,${0.5 + pulse * 0.4})`
+        : `rgba(2,136,209,${0.5 + pulse * 0.4})`;
+      ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.restore();
+
+      // ── Spinning icon ────────────────────────────
+      ctx.save();
+      ctx.translate(x + 20, CARD_H / 2 + 2);
+      ctx.rotate(Math.sin(t / 600 + i) * 0.18);
+      ctx.font = '18px "Segoe UI Emoji"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(item.emoji, 0, 0);
+      ctx.restore();
+
+      // ── Name ─────────────────────────────────────
+      ctx.fillStyle = item.id === 'lollipop' ? '#AD1457' : '#01579B';
+      ctx.font = 'bold 9px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(item.name, x + 36, 5);
+
+      // ── Countdown text ───────────────────────────
+      const sec = Math.ceil(item.timer / FPS);
+      const flashOn = urgnt && Math.floor(t / 300) % 2 === 0;
+      ctx.fillStyle = flashOn ? '#FF1744' : (urgnt ? '#FF6D00' : '#333');
+      ctx.font = `bold ${urgnt ? 11 : 10}px "Courier New"`;
+      ctx.textBaseline = 'top';
+      ctx.fillText(sec + 's', x + 36, 17);
+
+      // ── Arc timer bar ────────────────────────────
+      const bx = x + 36, by = 30, bw = CARD_W - 40;
+      // track
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, BAR_H - 4, 3); ctx.fill();
+      // fill gradient
+      const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+      if (grad && grad.addColorStop) {
+        if (item.id === 'lollipop') {
+          grad.addColorStop(0, '#FF80AB'); grad.addColorStop(1, '#F06292');
+        } else {
+          grad.addColorStop(0, '#81D4FA'); grad.addColorStop(1, '#0288D1');
+        }
+        ctx.fillStyle = grad;
+      } else {
+        ctx.fillStyle = item.id === 'lollipop' ? '#FF80AB' : '#81D4FA';
+      }
+      if (urgnt && flashOn) ctx.fillStyle = '#FF1744';
+      const fillW = Math.max(2, bw * frac);
+      ctx.beginPath(); ctx.roundRect(bx, by, fillW, BAR_H - 4, 3); ctx.fill();
+
+      // ── Shimmer overlay on bar ───────────────────
+      if (!urgnt) {
+        const shimX = bx + ((t / 8) % (bw + 20)) - 10;
+        ctx.save(); ctx.globalAlpha = 0.4;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.roundRect(Math.max(bx, shimX), by, 8, BAR_H - 4, 2); ctx.fill();
+        ctx.restore();
+      }
     });
   }
 
   activateItem(itemId) {
     const def = ITEMS[itemId];
     if (!def) return;
-    // refresh if already active
     const existing = this.activeItems.find(a => a.id === itemId);
-    if (existing) { existing.timer = def.duration; return; }
+    if (existing) { existing.timer = def.duration; this._burst(WIDTH/2, HUD_H/2, itemId); return; }
     this.activeItems.push({ id: itemId, timer: def.duration, duration: def.duration, emoji: def.emoji, name: def.name });
+    this._burst(WIDTH/2, HUD_H/2, itemId);
+  }
+
+  _burst(cx, cy, itemId) {
+    const col = itemId === 'lollipop' ? '#FF80AB' : '#81D4FA';
+    const emoji = ITEMS[itemId]?.emoji || '✨';
+    for (let i = 0; i < 18; i++) {
+      const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.3;
+      const spd   = 2.5 + Math.random() * 3;
+      this._particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
+        life: 55 + Math.random() * 20, maxLife: 75,
+        col, r: 3 + Math.random() * 3,
+        isEmoji: i < 4, emoji,
+      });
+    }
   }
 
   updateItems() {
     this.activeItems = this.activeItems.filter(a => { a.timer--; return a.timer > 0; });
+    this._particles = this._particles.filter(p => {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.vx *= 0.95;
+      p.life--; return p.life > 0;
+    });
   }
 
   hasItem(itemId) {
