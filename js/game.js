@@ -271,12 +271,21 @@ class Game {
     if (this.joypad.consumeBomb()) this._handleCancel();
 
     // Ambient item particles
-    if (this.hud.hasItem('lollipop') && Math.random() < 0.4) {
+    if (this.hud.hasItem('lollipop') && Math.random() < 0.45) {
+      // Spawn near player, float upward toward customer zone (y: ~498 → ~200)
+      const px = this.player.x + this.player.w / 2;
+      const py = this.player.y + this.player.h / 2;
+      // slight spread left-right as they rise, drifting toward customer tables
+      const targetX = 60 + Math.random() * (WIDTH - 120);  // anywhere across table row
+      const driftX  = (targetX - px) / 80;                 // spread over ~80 frames
       this._ambientParts.push({
-        x: Math.random() * WIDTH, y: HEIGHT - PAD_H,
-        vx: (Math.random()-0.5)*1.2, vy: -1.5 - Math.random()*1.5,
-        life: 80, maxLife: 80, col: '#FF80AB', r: 4 + Math.random()*4, spin: Math.random()*6,
-        emoji: Math.random() < 0.3 ? '🍭' : null,
+        x: px + (Math.random() - 0.5) * 40,
+        y: py,
+        vx: driftX + (Math.random() - 0.5) * 0.6,
+        vy: -(2.2 + Math.random() * 1.4),   // rises fast enough to reach tables
+        life: 90, maxLife: 90,
+        col: '#FF80AB', r: 4 + Math.random() * 4,
+        emoji: Math.random() < 0.4 ? '🍭' : null,
       });
     }
     if (this.hud.hasItem('milk') && Math.random() < 0.35) {
