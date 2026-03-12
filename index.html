@@ -6,6 +6,21 @@
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0,
                  user-scalable=no, viewport-fit=cover" />
   <title>🍽️ My Restaurant</title>
+  <!-- ═══════════════════════════════════════════════════════════
+       My Restaurant — HTML5 Canvas cooking game
+       Canvas: 390×720 px  |  Target: 60 FPS  |  Mobile-first
+
+       Script load order matters — each file depends on globals
+       defined by the previous one:
+         settings.js → ranking.js → player.js → customer.js
+                     → kitchen.js → hud.js    → game.js
+       All scripts carry defer so they run after DOM parse.
+
+       Boot sequence (bottom of this file):
+         1. fitScreen()  — CSS-scales #wrapper to fill viewport
+         2. Loading bar  — fake progress while assets stream in
+         3. startGame()  — creates Game, loads images + BGM, calls start()
+  ═══════════════════════════════════════════════════════════ -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -150,13 +165,13 @@
 </div>
 
 <!-- ════ Scripts ════ -->
-<script src="js/settings.js"></script>
-<script src="js/ranking.js"></script>
-<script src="js/player.js"></script>
-<script src="js/customer.js"></script>
-<script src="js/kitchen.js"></script>
-<script src="js/hud.js"></script>
-<script src="js/game.js"></script>
+<script src="js/settings.js" defer></script>
+<script src="js/ranking.js"  defer></script>
+<script src="js/player.js"   defer></script>
+<script src="js/customer.js" defer></script>
+<script src="js/kitchen.js"  defer></script>
+<script src="js/hud.js"      defer></script>
+<script src="js/game.js"     defer></script>
 
 <script>
 (function () {
@@ -368,34 +383,7 @@
     });
   }
   // (kept for compatibility — error beep uses _makeBeep)
-  function __unused(freq, duration, type) {
-    let _actx2 = null;
-    function getCtx() {
-      if (!_actx2) _actx2 = new (window.AudioContext || window.webkitAudioContext)();
-      return _actx2;
-    }
-    function playBeep() {
-      try {
-        const ctx = getCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.type = type || 'square';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + duration + 0.01);
-        return Promise.resolve();
-      } catch(e) { return Promise.resolve(); }
-    }
-    const obj = {
-      play:      () => playBeep(),
-      cloneNode: () => ({ play: () => playBeep() }),
-      volume: 0.5,
-    };
-    return obj;
-  }
+  // (dead code removed: __unused synth function)
 })();
 </script>
 
