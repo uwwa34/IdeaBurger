@@ -1,22 +1,58 @@
-// ═══════════════════════════════════════════════════
-//  js/game.js  —  My Restaurant  v5
-// ═══════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  js/game.js  —  My Restaurant
+//
+//  PURPOSE : Main game class.  Owns the state machine, game loop,
+//            input handling, cooking logic, and all draw dispatch.
+//
+//  STATE MACHINE:
+//    INTRO → PLAYING → END_GAME → SCORE → RANKING → (restart) → INTRO
+//
+//  KEY SUBSYSTEMS (each is a separate class in its own file):
+//    Kitchen      (kitchen.js)  — scene / station drawing
+//    Player       (player.js)   — movement, cook-step progress
+//    CustomerManager (customer.js) — spawn, AI, seat management
+//    HUD          (hud.js)      — timer bar, money, active items
+//    VirtualJoypad (hud.js)     — on-screen touch buttons
+//    RankingScreen (ranking.js) — name entry + leaderboard
+//
+//  COOK FLOW (single session):
+//    1. Player at PREP → press A → overlay opens
+//    2. Select food → _startCooking() → timer runs at PREP
+//    3. Timer done → _stepReady=true → next station blinks green
+//    4. Player walks to blinking station → press A → next timer
+//    5. Last step done → player.holding = menuId
+//    6. Player walks to SERVE → press A → serve customer or queue
+//    7. Press B at any time → cancel / close overlay
+//
+//  ITEM EFFECTS (implemented in _updatePlaying):
+//    lollipop — isPatiencePaused=true passed to custMgr each frame
+//    milk     — extra cookTimer-- per frame while player.busy
+//
+//  DEPENDENCIES (globals from settings.js):
+//    WIDTH, HEIGHT, HUD_H, PAD_H, GAME_H, FPS, STATE, COL,
+//    STATIONS, STATION_LOOKUP, MENU, ITEMS, CUSTOMER_TYPES,
+//    SHOP_OPEN_DURATION
+// ════════════════════════════════════════════════════════════════
 
 class Game {
+  // canvas — the <canvas> element; also used by RankingScreen and VirtualJoypad.
+  // Call setImages(), setSounds(), then start() after constructing.
   constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx    = canvas.getContext('2d');
-    this.state  = STATE.INTRO;   // ← start with intro
+    this.canvas  = canvas;
+    this.ctx     = canvas.getContext('2d');
+    this.state   = STATE.INTRO;
     this.running = true;
+
+    // Fixed-timestep loop: accumulate real ms, drain in FPS-sized chunks
     this.lastTime    = 0;
     this.accumulator = 0;
     this.stepMs      = 1000 / FPS;
 
-    this.images = {};
-    this._sounds = {};
+    this.images  = {};   // populated by setImages()
+    this._sounds = {};   // populated by setSounds()
 
     this.kitchen    = new Kitchen();
-    this.player     = new Player(null);
+    this.player     = new Player(null);      // sprite injected by setImages()
     this.custMgr    = new CustomerManager();
     this.hud        = new HUD();
     this.joypad     = new VirtualJoypad(canvas);
@@ -214,8 +250,10 @@ class Game {
   _updatePlaying() {
     this.hud.update();
     this.hud.updateItems();
-    // Sync global flags for item effects
-    window._lollipopActive = this.hud.hasItem('lollipop');
+    // Compute item effect flags once per frame — passed as parameters,
+    // never stored on window to avoid global state pollution.
+    const isPatiencePaused = this.hud.hasItem('lollipop');  // lollipop freezes patience bars
+    const isCookFast       = this.hud.hasItem('milk');      // milk doubles cook speed
 
     if (!this.menuSelecting) {
       // Joypad L/R: one-shot snap per press, same as keyboard
@@ -232,7 +270,8 @@ class Game {
 
     // Cook timer → step ready (or auto-complete last step)
     // Milk: cook twice as fast — decrement timer extra once per frame
-    if (this.hud.hasItem('milk') && this.player.busy && this.player.cookTimer > 0) {
+    // Milk item: decrement cook timer twice per frame (2× speed)
+    if (isCookFast && this.player.busy && this.player.cookTimer > 0) {
       this.player.cookTimer--;
     }
 
@@ -253,7 +292,7 @@ class Game {
         // Middle step done: mark ready, player walks to next station
         this.player._stepReady = true;
         const nextId = this.player.activeMenu?.steps[nextStepIdx];
-        const nextSt = Object.values(STATIONS).find(s => s.id === nextId);
+        const nextSt = STATION_LOOKUP[nextId];
         this._addNotification('✅ เสร็จ! ไปที่ ' + (nextSt?.label || nextId), COL.GREEN);
       }
     }
@@ -271,7 +310,7 @@ class Game {
     if (this.joypad.consumeBomb()) this._handleCancel();
 
     // Ambient item particles
-    if (this.hud.hasItem('lollipop') && Math.random() < 0.45) {
+    if (isPatiencePaused && Math.random() < 0.45) {   // lollipop active
       // Spawn near player, float upward toward customer zone (y: ~498 → ~200)
       const px = this.player.x + this.player.w / 2;
       const py = this.player.y + this.player.h / 2;
@@ -288,7 +327,7 @@ class Game {
         emoji: Math.random() < 0.4 ? '🍭' : null,
       });
     }
-    if (this.hud.hasItem('milk') && Math.random() < 0.35) {
+    if (isCookFast && Math.random() < 0.35) {         // milk active
       this._ambientParts.push({
         x: this.player.x + this.player.w/2 + (Math.random()-0.5)*30,
         y: this.player.y,
@@ -301,8 +340,8 @@ class Game {
       p.x += p.vx; p.y += p.vy; p.vy -= 0.02; p.life--; return p.life > 0;
     });
 
-    // Customers
-    this.custMgr.update(true);
+    // Customers — pass isPatiencePaused so Customer.update() doesn't need window.*
+    this.custMgr.update(true, isPatiencePaused);
 
     // Auto-serve: match queued dishes to newly-waiting customers
     for (let qi = this.serveQueue.length - 1; qi >= 0; qi--) {
@@ -350,9 +389,19 @@ class Game {
     }
   }
 
-  // ─── ACT (A button) ───────────────────────────
+  // ─── ACT (A button) ─────────────────────────────────────────────
+  // Decision tree (evaluated top-to-bottom, returns on first match):
+  //   1. Menu overlay open      → confirm selection (food or item)
+  //   2. Holding + at PREP      → open item-only overlay
+  //   3. Holding + at SERVE     → serve customer or push to queue
+  //   4. Holding + elsewhere    → error (must go to SERVE)
+  //   5. Cooking + at PREP      → open item-only overlay
+  //   6. Cooking + step ready   → advance step (must be at correct station)
+  //   7. Cooking + timer running → feedback ("wait Xs")
+  //   8. Idle + at PREP         → open full menu+item overlay
+  //   9. Idle + other station   → error hint
   _handleAct() {
-    // ── While menu is open: confirm selection ────
+    // ── 1. Menu overlay: confirm selection ───────
     if (this.menuSelecting) {
       const foodList = Object.values(MENU).slice(0, 4);
       const itemList = Object.values(ITEMS);
@@ -439,11 +488,11 @@ class Game {
         const nextId  = this.player.activeMenu.steps[nextIdx];
         if (st === nextId) {
           this.player.startNextStep();  // advances step, starts next timer
-          const nextStLabel = Object.values(STATIONS).find(s => s.id === nextId)?.label || nextId;
+          const nextStLabel = STATION_LOOKUP[nextId]?.label || nextId;
           this._addNotification('▶ เริ่ม ' + nextStLabel, COL.PRIMARY);
         } else {
           this._playSound('error');
-          const nextSt = Object.values(STATIONS).find(s => s.id === nextId);
+          const nextSt = STATION_LOOKUP[nextId];
           this._addNotification('ไปที่ ' + (nextSt?.label || nextId) + ' ก่อน!', COL.RED);
         }
         return;
@@ -469,8 +518,9 @@ class Game {
     }
   }
 
-  // ─── Start cooking ────────────────────────────
-  // ─── Buy item ────────────────────────────────
+  // ─── Buy item ────────────────────────────────────────────────────
+  // Deducts item.price, activates the effect via hud.activateItem(),
+  // and triggers the visual burst + banner notification.
   _buyItem(itemId) {
     const item = ITEMS[itemId];
     if (!item) return;
@@ -489,12 +539,14 @@ class Game {
     this._playSound('cheer');
   }
 
+  // ─── Start cooking ───────────────────────────────────────────────
+  // Called when player confirms a food selection from the overlay.
+  // player.startCook() resets cookStep=0, starts timer at PREP.
   _startCooking(menuId) {
     const menu = MENU[menuId];
     if (!menu) return;
     this.menuSelecting = false;
     this.player.startCook(menu);
-    // Timer starts immediately (player is at PREP already)
     this._addNotification(`🍳 เริ่มทำ ${menu.name}!`, COL.PRIMARY);
   }
 
@@ -652,6 +704,7 @@ class Game {
     this.kitchen.drawInside(ctx);
 
     // ── Lollipop screen tint: soft pink freeze overlay ──────────
+    // Lollipop visual: soft pink overlay across the playfield
     if (this.hud.hasItem('lollipop')) {
       const pulse = 0.04 + Math.abs(Math.sin(Date.now()/800)) * 0.04;
       ctx.save(); ctx.globalAlpha = pulse;
@@ -845,10 +898,21 @@ class Game {
     }
   }
 
-  // ─── Menu Select overlay ─────────────────────
-  // Layout (idle):    food 2×2 rows top, items 2×1 row bottom, divider line
-  // Layout (cooking): items 2×1 centered only
-  // Joypad ◀▶: no wrap. A = confirm. B = cancel.
+  // ─── Menu / Item overlay ─────────────────────────────────────────
+  // Covers the playfield (HUD_H → HEIGHT-PAD_H).
+  //
+  // Two layouts depending on player state:
+  //   Idle (no active recipe, not holding):
+  //     • Food cards  2×2 grid (top)
+  //     • "── ไอเทม ──" divider
+  //     • Item cards  2×1 grid (bottom)
+  //   Cooking / Holding food:
+  //     • Item cards  2×1 centred only (no food section)
+  //
+  // Navigation: ◀▶ clamps (no wrap).  A = confirm.  B = cancel.
+  //
+  // Hit-test bounds are stored in this._menuCardBounds / _itemCardBounds
+  // and read back by _bindTap() for touch input.
   _drawMenuSelect(ctx) {
     ctx.fillStyle = 'rgba(252,228,236,0.96)';
     ctx.fillRect(0, HUD_H, WIDTH, GAME_H);
@@ -972,10 +1036,12 @@ class Game {
   }
 
 
-  // ─── Serve queue display (at SERVE station) ───
+  // ─── Serve queue (above SERVE station) ──────────────────────────
+  // Shows up to 2 dish icons with a "n/2" counter.
+  // Drawn BEFORE _drawMenuSelect so the overlay covers these icons.
   _drawServeQueue(ctx) {
     if (this.serveQueue.length === 0) return;
-    const st = Object.values(STATIONS).find(s => s.id === 'serve');
+    const st = STATION_LOOKUP['serve'];
     const cx = st.x + st.w / 2;
     const qy = st.y - 10;
     this.serveQueue.forEach((q, i) => {
@@ -1010,7 +1076,7 @@ class Game {
     ctx.fillStyle = COL.TEXT_MAIN; ctx.font = '11px "Segoe UI Emoji"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const crumb = menu.steps.map((s,i) => {
-      const st = Object.values(STATIONS).find(x => x.id === s);
+      const st = STATION_LOOKUP[s];
       const em = st?.emoji || s;
       if (i < step) return '✓';
       if (i === step) return `[${em}]`;
@@ -1019,13 +1085,13 @@ class Game {
     ctx.fillText(crumb, cx, gy);
 
     // Status hint
-    const reqSt = Object.values(STATIONS).find(s => s.id === menu.steps[step]);
+    const reqSt = STATION_LOOKUP[menu.steps[step]];
     ctx.font = '10px Arial'; ctx.fillStyle = COL.TEXT_MAIN;
     let hint = '';
     if (this.player._stepReady) {
       const nextIdx = step + 1;
       const nextId  = menu.steps[nextIdx];
-      const nextSt  = Object.values(STATIONS).find(s => s.id === nextId);
+      const nextSt  = STATION_LOOKUP[nextId];
       hint = nextSt ? `ไปที่ ${nextSt.label} แล้วกด A` : `กด A ที่ ${reqSt?.label}`;
     } else if (this.player.busy) {
       hint = `⏳ ${Math.ceil(this.player.cookTimer/FPS)}s ที่ ${reqSt?.label}`;
@@ -1072,6 +1138,9 @@ class Game {
     });
   }
 
+  // Queues a toast notification above the joypad area.
+  // big=true uses the dark-banner style (item ACTIVATED! announcements).
+  // Max 4 notifications shown simultaneously; oldest is dropped.
   _addNotification(text, color = COL.TEXT_MAIN, big = false) {
     this.notifications.forEach(n => n.y -= (big ? 44 : 32));
     this.notifications.push({ text, color, timer: big ? 130 : 100, y: HEIGHT - PAD_H - 22, big });
@@ -1089,9 +1158,13 @@ class Game {
   }
 
   // ─── Input ────────────────────────────────────
+  // _keydownHandler and _keyupHandler are stored on the instance so they
+  // can be passed to removeEventListener if the game is ever torn down.
+  // Previously they were anonymous arrows → impossible to remove → memory leak.
   _bindKeys() {
     this._keys = {};
-    window.addEventListener('keydown', e => {
+
+    this._keydownHandler = e => {
       if (this._keys[e.key]) return;
       this._keys[e.key] = true;
 
@@ -1131,14 +1204,26 @@ class Game {
       if (e.key === 'Enter' && this.state === STATE.SCORE && this.scoreReady) {
         this._goToRanking();
       }
-    });
-    window.addEventListener('keyup', e => { this._keys[e.key] = false; });
+    };
+    this._keyupHandler = e => { this._keys[e.key] = false; };
+
+    window.addEventListener('keydown', this._keydownHandler);
+    window.addEventListener('keyup',   this._keyupHandler);
   }
 
+  // Call this if the game canvas is ever removed from the DOM (cleanup)
+  destroy() {
+    window.removeEventListener('keydown', this._keydownHandler);
+    window.removeEventListener('keyup',   this._keyupHandler);
+    this.running = false;
+  }
+
+  // Maps click / touchend events on the scaled canvas wrapper back to
+  // logical canvas coordinates, then routes to the appropriate handler.
   _bindTap(canvas) {
     const toCanvas = (cx, cy) => {
       const r = canvas.getBoundingClientRect();
-      return [(cx-r.left)*WIDTH/r.width, (cy-r.top)*HEIGHT/r.height];
+      return [(cx - r.left) * WIDTH / r.width, (cy - r.top) * HEIGHT / r.height];
     };
 
     const onTap = (x, y) => {
@@ -1188,6 +1273,9 @@ class Game {
     });
   }
 
+  // Snaps the player to the adjacent station (dir: -1=left, +1=right).
+  // If the player is between stations the nearest one is used as origin.
+  // A 120 ms moving=true flag triggers the walk animation.
   _keyboardMove(dir) {
     const stations = Object.values(STATIONS);
     let curIdx = stations.findIndex(st => this.player.atStation === st.id);
@@ -1226,7 +1314,7 @@ class Game {
     this.notifications = [];
     this.serveQueue    = [];
     this._ambientParts = [];
-    window._lollipopActive = false;
+    // No window.* globals to clear — item effects are passed as params each frame
 
     this.player = new Player(this.images.player || null);
     this.player.x = -this.player.w - 20;

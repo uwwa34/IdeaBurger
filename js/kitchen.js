@@ -1,16 +1,38 @@
-// ═══════════════════════════════════════════════════
-//  js/kitchen.js  —  Kitchen/Scene drawing  (Pink Theme)
-// ═══════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  js/kitchen.js  —  My Restaurant
+//
+//  PURPOSE : Draws the restaurant scene (floor, walls, tables,
+//            counter, stations) and provides station-highlight
+//            helpers used by game.js during gameplay.
+//
+//  PUBLIC API:
+//    drawInside(ctx)            — full playfield draw (called every frame)
+//    drawOutside(ctx)           — storefront fallback (INTRO state)
+//    highlightStation(ctx, id)  — pink pulse ring around current station
+//    blinkStation(ctx, id)      — green blink + 👇 arrow for "go here next"
+//
+//  ASSET INJECTION:
+//    kitchen.bgInside = <HTMLImageElement>  (set by game.js setImages)
+//    If bgInside is not loaded, a procedurally drawn fallback is used.
+//
+//  STATION LOOKUP:
+//    Uses STATION_LOOKUP[id] (O(1)) defined in settings.js.
+//    All magic pixel values here match TABLE_DEFS in customer.js
+//    and the STATION_Y constant in settings.js — change in sync.
+//
+//  DEPENDENCIES (globals from settings.js):
+//    WIDTH, HEIGHT, HUD_H, GAME_H, COL, STATIONS, STATION_LOOKUP
+// ════════════════════════════════════════════════════════════════
 
 class Kitchen {
   constructor() {
+    // _lightAlpha reserved for a future dynamic lighting system
     this._lightAlpha = 0;
-    this.bgInside = null;   // injected by game.js setImages
+    this.bgInside    = null;   // injected by game.js via setImages()
   }
 
-  update() {
-    // no lighting system needed
-  }
+  // Reserved for future use (e.g. day/night cycle)
+  update() {}
 
   drawInside(ctx) {
     // ── Use bg_inside.png if available ───────────
@@ -68,8 +90,10 @@ class Kitchen {
     ctx.fillStyle = '#FCE4EC'; ctx.fillRect(170, 315, 50, 80);
   }
 
+  // Pink pulsing ring drawn around the station the player is currently at.
+  // Signals which station is "active" without obscuring its icon.
   highlightStation(ctx, stationId) {
-    const st = Object.values(STATIONS).find(s => s.id === stationId);
+    const st = STATION_LOOKUP[stationId];
     if (!st) return;
     const pulse = 0.55 + Math.abs(Math.sin(Date.now() / 380)) * 0.45;
     ctx.save();
@@ -81,9 +105,11 @@ class Kitchen {
     ctx.restore();
   }
 
-  // Blink a station green — signals "go here next"
+  // Green blinking overlay + 👇 arrow above a station.
+  // Drawn when player._stepReady=true to guide the player to the next step.
+  // Blink rate: on ~400 ms / off ~400 ms (driven by sin wave on Date.now()).
   blinkStation(ctx, stationId) {
-    const st = Object.values(STATIONS).find(s => s.id === stationId);
+    const st = STATION_LOOKUP[stationId];
     if (!st) return;
     // Fast green blink: on ~400ms, off ~400ms
     const blink = Math.sin(Date.now() / 200);

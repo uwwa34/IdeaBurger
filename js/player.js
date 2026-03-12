@@ -1,9 +1,37 @@
-// ═══════════════════════════════════════════════════
-//  js/player.js  —  My Restaurant  v5
-//  - Full-body sprite (no sheet crop), 80×114px on screen
-//  - Progress bar drawn above player head
-//  - Bar rules: at-correct-station=empty track, busy=green fill, done=full+blink
-// ═══════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  js/player.js  —  My Restaurant
+//
+//  PURPOSE : Player character — movement, cook-step state machine,
+//            sprite rendering, progress bar, and held-food display.
+//
+//  COOK STATE MACHINE (fields: cookStep, cookTimer, busy, _stepReady):
+//
+//    ┌──────────┐  startCook()   ┌─────────────┐
+//    │  idle    │ ─────────────▶ │ busy=true   │ (timer counting down)
+//    └──────────┘                └──────┬──────┘
+//                                       │ timer hits 0
+//                                       ▼
+//                               ┌─────────────┐
+//                               │ _stepReady  │ (walk to next station)
+//                               └──────┬──────┘
+//                                      │ startNextStep() called at correct station
+//                                      ▼
+//                              (loop back or holding=menuId)
+//
+//  PROGRESS BAR RULES (drawn above head):
+//    • Not at required station       → bar hidden
+//    • At station, timer running     → green fill (cook progress)
+//    • At station, _stepReady=true   → full green blinking + hint text
+//    • At station, idle (first press) → empty track shown
+//
+//  MOVEMENT:
+//    Snap-to-station via _keyboardMove() in game.js.
+//    player.update() accepts dx=0 always; y is clamped to fixedY.
+//    dir ('left'/'right') flips the sprite on horizontal move.
+//
+//  DEPENDENCIES (globals from settings.js):
+//    WIDTH, HUD_H, FPS, PLAYER_SPEED, MENU, COL, STATIONS
+// ════════════════════════════════════════════════════════════════
 
 class Player {
   constructor(spriteImg) {
@@ -73,6 +101,8 @@ class Player {
     return false;
   }
 
+  // Begin cooking a menu item.  Called by game._startCooking() after overlay confirm.
+  // Resets to step 0 and starts the first cook timer immediately (player is at PREP).
   startCook(menu) {
     this.activeMenu = menu;
     this.cookStep   = 0;
@@ -83,7 +113,9 @@ class Player {
     this._stepReady = false;
   }
 
-  // Call when player presses A at the NEXT required station after step is ready
+  // Advance to the next cook step.
+  // Must only be called when _stepReady=true AND player is at the correct station.
+  // Returns true if this was the LAST step (holding food, recipe cleared).
   startNextStep() {
     if (!this.activeMenu || !this._stepReady) return false;
     this._stepReady = false;
@@ -113,6 +145,8 @@ class Player {
     this._stepReady = false;
   }
 
+  // Returns true if the player's horizontal centre is within ~half-station-width
+  // of the station's centre, and feet are in the vertical trigger zone.
   overlapsStation(st) {
     const px  = this.x + this.w/2;
     const stCx = st.x + st.w/2;

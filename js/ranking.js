@@ -1,7 +1,33 @@
-// ═══════════════════════════════════════════════════
-//  js/ranking.js  —  My Restaurant  (Pink Theme)
-// ═══════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  js/ranking.js  —  My Restaurant
+//
+//  CLASSES:
+//    RankingSystem  — static helpers for localStorage read/write
+//    RankingScreen  — full-screen overlay rendered via canvas
+//
+//  FLOW:
+//    game._goToRanking()
+//      → rankScreen.show(score, details, onDone)
+//         → mode='entry': player types name on virtual keyboard
+//         → confirmName(): saves to localStorage, mode='board'
+//         → mode='board': shows top-10 leaderboard
+//         → tap bottom area / Enter → _done() → onDone() → restart()
+//
+//  STORAGE:
+//    Key: RANKING_KEY (settings.js) = 'myRestaurant_ranking_v1'
+//    Format: JSON array of { name, score, date }, max RANKING_MAX entries
+//    Sorted descending by score; oldest entry at tail is dropped.
+//
+//  INPUT:
+//    Physical keyboard: handled by _keyHandler (added/removed on show/hide)
+//    Touch: handleTap(x, y) called by game.js _bindTap()
+//    Virtual keyboard: QWERTY + ⌫, rendered by _drawVKB()
+//
+//  DEPENDENCIES (globals from settings.js):
+//    WIDTH, HEIGHT, COL, RANKING_KEY, RANKING_MAX
+// ════════════════════════════════════════════════════════════════
 
+// Pure static utility — no instances needed.
 class RankingSystem {
   static load() {
     try { return JSON.parse(localStorage.getItem(RANKING_KEY)) || []; }
@@ -10,6 +36,8 @@ class RankingSystem {
   static save(list) {
     try { localStorage.setItem(RANKING_KEY, JSON.stringify(list)); } catch {}
   }
+  // Insert a new score, re-sort, trim to RANKING_MAX, persist.
+  // Returns the updated list.
   static addScore(name, score) {
     const list = RankingSystem.load();
     list.push({ name: name.trim().slice(0,12) || 'Chef', score, date: new Date().toLocaleDateString('th-TH') });
@@ -18,6 +46,7 @@ class RankingSystem {
     RankingSystem.save(trimmed);
     return trimmed;
   }
+  // Returns 1-based rank the given score would occupy (before save).
   static getRank(score) {
     return RankingSystem.load().filter(e => e.score > score).length + 1;
   }
