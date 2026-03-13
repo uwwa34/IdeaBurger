@@ -28,7 +28,7 @@ const GAME_H = HEIGHT - HUD_H - PAD_H;   // 550  — playfield height
 
 // ── 2. Timing & speeds ───────────────────────────────────────────
 // Tweak these to change game difficulty without touching logic files.
-const SHOP_OPEN_DURATION  = 90  * FPS;   // total round length (frames)
+const SHOP_OPEN_DURATION  = 150  * FPS;   // total round length (frames)
 const CUSTOMER_SPAWN_MIN  = 5   * FPS;   // earliest next spawn (frames)
 const CUSTOMER_SPAWN_MAX  = 10  * FPS;   // latest  next spawn (frames)
 const PLAYER_SPEED        = 4;           // pixels per frame (unused — snap movement)
