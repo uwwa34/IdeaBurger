@@ -511,7 +511,7 @@ class Game {
       this.menuSelecting = true;
       this.menuSelectIdx = 0;
     } else if (st) {
-      this._addNotification('ไปที่ 🔪 เตรียมของ เพื่อเลือกเมนู/ไอเทม', COL.PRIMARY);
+      this._addNotification('ไปที่ เตรียมของ เพื่อเลือกเมนู/ไอเทม', COL.PRIMARY);
       this._playSound('error');
     } else {
       this._addNotification('เดินไปที่สถานีก่อน!', '#aaa');
